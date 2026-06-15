@@ -1166,38 +1166,35 @@ else:
         k2 = _team_key(team2)
 
         live = (_live_scores.get((k1, k2)) or _live_scores.get((k2, k1))) if '_live_scores' in globals() else None
+        api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
+        has_result = result is not None and str(result).strip() != ""
+        live_window = bool(dt and dt <= now and (now - dt).total_seconds() <= 9000)
 
         # If Excel not yet updated, try the final-result cache only after kickoff.
         # Never let a live score be overwritten by a winner result.
-        if not live and not result and dt and dt <= now:
-            result = (
-                _api_results.get((k1, k2))
-                or _api_results.get((k2, k1))
-                or _api_results.get((_team_key(team1), _team_key(team2)))
-                or _api_results.get((_team_key(team2), _team_key(team1)))
-            )
-
-        # Always try API if result missing and the match is not live.
-        if (not live) and (result is None or str(result).strip() == ""):
-            api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
-
+        if not live and not has_result and dt and dt <= now:
             if api_result:
                 result = str(api_result).strip()
+                has_result = True
+
+        # Always try API if result missing and the match is not live.
+        if (not live) and (not has_result):
+            if api_result:
+                result = str(api_result).strip()
+                has_result = True
 
         f1 = flag_html(get_flag_url(team1))
         f2 = flag_html(get_flag_url(team2))
 
-        # ── Status: live overrides everything else; then finished; then scheduled/pending ──
-        if live:
+        # ── Status: live or live-window overrides everything else; then finished; then scheduled/pending ──
+        if live or live_window:
             status = "LIVE"
-        elif result is not None and str(result).strip() != "":
+        elif has_result:
             status = "Finished"
         elif dt:
             diff = (now - dt).total_seconds()
             if diff < 0:
                 status = "Upcoming"
-            elif diff <= 9000:      # within 2.5 h of kick-off → LIVE window
-                status = "LIVE"
             else:
                 status = "Result Pending"
         else:
