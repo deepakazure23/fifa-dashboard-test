@@ -9,8 +9,6 @@ import os
 import requests as req
 from openpyxl import load_workbook
 
-from pathlib import Path
-
 def _load_img(path, mime):
     try:
         with open(path, "rb") as f:
@@ -18,19 +16,9 @@ def _load_img(path, mime):
     except:
         return ""
 
-BASE_DIR = Path(__file__).resolve().parent
-
-
-def _load_img(path, mime):
-    try:
-        with open(path, "rb") as f:
-            return f"data:{mime};base64," + base64.b64encode(f.read()).decode()
-    except Exception:
-        return ""
-
-
-FIFA_LOGO    = _load_img(str(BASE_DIR / "FIFA_Logo_2026.webp"), "image/webp")
-CONCEPT_LOGO = _load_img(str(BASE_DIR / "Concept Logo World Cup 2026.jpg"), "image/jpeg")
+_BASE        = r"C:\Users\Deepak.Powar\fifa"
+FIFA_LOGO    = _load_img(_BASE + r"\FIFA_Logo_2026.webp",             "image/webp")
+CONCEPT_LOGO = _load_img(_BASE + r"\Concept Logo World Cup 2026.jpg",  "image/jpeg")
 
 st.set_page_config(
     page_title="FIFA 2026 Dashboard",
@@ -463,6 +451,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+
 # ── Floating footballs (transparent, decorative) ────────────────────────
 st.markdown("""
 <div class="fb" style="left:4%;  --fdur:22s; --fdel:0s">⚽</div>
@@ -473,7 +462,7 @@ st.markdown("""
 <div class="fb" style="left:89%; --fdur:28s; --fdel:-15s">⚽</div>
 """, unsafe_allow_html=True)
 
-FILE_PATH = str(BASE_DIR / "World Cup 2026 Comp.xlsx")
+FILE_PATH = r"C:\Users\Deepak.Powar\fifa\World Cup 2026 Comp.xlsx"
 
 
 NZ_TZ = ZoneInfo("Pacific/Auckland")
@@ -524,6 +513,17 @@ def _norm_team(name):
 
 def _team_key(name):
     return _norm_team(name).casefold()
+
+def _is_draw_result(value):
+    s = str(value).strip().casefold()
+    if s in {"draw", "tie", "0-0", "0:0", "nil nil", "nil-nil"}:
+        return True
+    for sep in ("-", ":", "–", "—"):
+        if sep in s:
+            parts = [p.strip() for p in s.split(sep)]
+            if len(parts) == 2 and parts[0] == parts[1] and parts[0].isdigit():
+                return True
+    return False
 
 
 @st.cache_data(ttl=45)
@@ -579,6 +579,23 @@ def fetch_api_results():
             pass
         return None
 
+    def _status_text(*values):
+        bits = []
+        for v in values:
+            if v is None:
+                continue
+            if isinstance(v, dict):
+                for key in ("Description", "Name", "Text", "Status", "State", "Phase"):
+                    if v.get(key):
+                        bits.append(str(v.get(key)))
+                continue
+            if isinstance(v, list):
+                for item in v:
+                    bits.append(str(item))
+                continue
+            bits.append(str(v))
+        return " ".join(bits).casefold()
+
     def _consume(payload):
         # FIFA returns match rows in payload['Results']; iterate all rows because the
         # date window already scopes the request to the tournament period.
@@ -586,6 +603,34 @@ def fetch_api_results():
             _h = _team_name(_ev.get("Home"))
             _a = _team_name(_ev.get("Away"))
             if not _h or not _a:
+                continue
+
+            _status = _status_text(
+                _ev.get("Status"),
+                _ev.get("MatchStatus"),
+                _ev.get("status"),
+                _ev.get("Phase"),
+                _ev.get("Progress"),
+                _ev.get("State"),
+                _ev.get("GameStatus"),
+                _ev.get("MatchState"),
+                _ev.get("CompetitionStatus"),
+                _ev.get("StatusDescription"),
+                _ev.get("Description"),
+            )
+
+            # Only write finished matches back as results.
+            # Live / in-progress fixtures should never populate the Result column.
+            if any(k in _status for k in (
+                "live", "in progress", "inprogress", "1st half", "2nd half",
+                "half time", "extra time", "penalty", "scheduled", "not started",
+                "upcoming", "pre-match", "prematch"
+            )):
+                continue
+
+            if not any(k in _status for k in (
+                "final", "finished", "completed", "full time", "ft", "aet", "post", "ended"
+            )):
                 continue
 
             hs = _score(_ev.get("Home"), "Score", "HomeTeamScore")
@@ -959,38 +1004,6 @@ def flag_html(url):
 # =========================
 # ✅ LEADERBOARD
 # =========================
-
-completed_matches = int(df["Result"].notna().sum())
-valid_matches = df[df["Team 1"].notna() & df["Team 2"].notna()]
-total_matches = len(valid_matches)
-completed_matches = valid_matches["Result"].notna().sum()
-remaining_matches = total_matches - completed_matches
-player_count = len([c for c in df.columns if "Pick" in c])
-st.markdown(f"""
-<div class="stat-row">
-    <div class="stat-card" data-icon="🏟️">
-        <div class="stat-label">Total Matches</div>
-        <div class="stat-value blue">{total_matches}</div>
-        <div class="stat-sublabel">Tournament Fixtures</div>
-    </div>
-    <div class="stat-card" data-icon="✅">
-        <div class="stat-label">Completed</div>
-        <div class="stat-value green">{completed_matches}</div>
-        <div class="stat-sublabel">Results Available</div>
-    </div>
-    <div class="stat-card" data-icon="⏳">
-        <div class="stat-label">Remaining</div>
-        <div class="stat-value orange">{remaining_matches}</div>
-        <div class="stat-sublabel">To Be Played</div>
-    </div>
-    <div class="stat-card" data-icon="👥">
-        <div class="stat-label">Players</div>
-        <div class="stat-value gold">{player_count}</div>
-        <div class="stat-sublabel">Prediction Participants</div>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-
 pick_cols = [col for col in df.columns if "Pick" in col]
 
 records = []
@@ -1093,6 +1106,37 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+
+completed_matches = int(df["Result"].notna().sum())
+total_matches = int(df.shape[0])
+remaining_matches = total_matches - completed_matches
+player_count = len([c for c in df.columns if "Pick" in c])
+
+st.markdown(f"""
+<div class="stat-row">
+    <div class="stat-card" data-icon="🏟️">
+        <div class="stat-label">Total Matches</div>
+        <div class="stat-value blue">{total_matches}</div>
+        <div class="stat-sublabel">Tournament Fixtures</div>
+    </div>
+    <div class="stat-card" data-icon="✅">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value green">{completed_matches}</div>
+        <div class="stat-sublabel">Results Available</div>
+    </div>
+    <div class="stat-card" data-icon="⏳">
+        <div class="stat-label">Remaining</div>
+        <div class="stat-value orange">{remaining_matches}</div>
+        <div class="stat-sublabel">To Be Played</div>
+    </div>
+    <div class="stat-card" data-icon="👥">
+        <div class="stat-label">Players</div>
+        <div class="stat-value gold">{player_count}</div>
+        <div class="stat-sublabel">Prediction Participants</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 # =========================
 # 📅 MATCH SCHEDULE
 # =========================
@@ -1121,9 +1165,11 @@ else:
         k1 = _team_key(team1)
         k2 = _team_key(team2)
 
-        # If Excel not yet updated, try live ESPN API once kickoff has passed.
-        # Check both orders so reversed source data still resolves.
-        if not result and dt and dt <= now:
+        live = (_live_scores.get((k1, k2)) or _live_scores.get((k2, k1))) if '_live_scores' in globals() else None
+
+        # If Excel not yet updated, try the final-result cache only after kickoff.
+        # Never let a live score be overwritten by a winner result.
+        if not live and not result and dt and dt <= now:
             result = (
                 _api_results.get((k1, k2))
                 or _api_results.get((k2, k1))
@@ -1131,11 +1177,20 @@ else:
                 or _api_results.get((_team_key(team2), _team_key(team1)))
             )
 
+        # Always try API if result missing and the match is not live.
+        if (not live) and (result is None or str(result).strip() == ""):
+            api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
+
+            if api_result:
+                result = str(api_result).strip()
+
         f1 = flag_html(get_flag_url(team1))
         f2 = flag_html(get_flag_url(team2))
 
-        # ── Status: show upcoming before kickoff, live around kickoff, otherwise waiting for result ──
-        if result:
+        # ── Status: live overrides everything else; then finished; then scheduled/pending ──
+        if live:
+            status = "LIVE"
+        elif result is not None and str(result).strip() != "":
             status = "Finished"
         elif dt:
             diff = (now - dt).total_seconds()
@@ -1151,20 +1206,17 @@ else:
         # ── Centre display ───────────────────────────────────────────────────
         t1_cls = t2_cls = ""
         if status == "Finished":
-            r_lower = result.lower() if result else ""
-            if r_lower == "draw":
+            if result and _is_draw_result(result):
                 score_html = '<span class="result-draw">⚖ DRAW</span>'
-            elif _team_key(result) == _team_key(team1):
+            elif result and _team_key(result) == _team_key(team1):
                 t1_cls, t2_cls = "winner", "loser"
                 score_html = f'<span class="result-win">✓ {team1}<br>WINS</span>'
-            elif _team_key(result) == _team_key(team2):
+            elif result and _team_key(result) == _team_key(team2):
                 t1_cls, t2_cls = "loser", "winner"
                 score_html = f'<span class="result-win">✓ {team2}<br>WINS</span>'
             else:
                 score_html = f'<span class="result-win">{result}</span>'
         elif status == "LIVE":
-            # Prefer live score if available
-            live = (_live_scores.get((k1, k2)) or _live_scores.get((k2, k1))) if '_live_scores' in globals() else None
             if live:
                 hs = live.get("home", 0)
                 as_ = live.get("away", 0)
