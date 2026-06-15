@@ -9,6 +9,8 @@ import os
 import requests as req
 from openpyxl import load_workbook
 
+from pathlib import Path
+
 def _load_img(path, mime):
     try:
         with open(path, "rb") as f:
@@ -16,9 +18,19 @@ def _load_img(path, mime):
     except:
         return ""
 
-_BASE        = r"."
-FIFA_LOGO    = _load_img(_BASE + r"\FIFA_Logo_2026.webp",             "image/webp")
-CONCEPT_LOGO = _load_img(_BASE + r"\Concept Logo World Cup 2026.jpg",  "image/jpeg")
+BASE_DIR = Path(__file__).resolve().parent
+
+
+def _load_img(path, mime):
+    try:
+        with open(path, "rb") as f:
+            return f"data:{mime};base64," + base64.b64encode(f.read()).decode()
+    except Exception:
+        return ""
+
+
+FIFA_LOGO    = _load_img(str(BASE_DIR / "FIFA_Logo_2026.webp"), "image/webp")
+CONCEPT_LOGO = _load_img(str(BASE_DIR / "Concept Logo World Cup 2026.jpg"), "image/jpeg")
 
 st.set_page_config(
     page_title="FIFA 2026 Dashboard",
@@ -461,7 +473,7 @@ st.markdown("""
 <div class="fb" style="left:89%; --fdur:28s; --fdel:-15s">⚽</div>
 """, unsafe_allow_html=True)
 
-FILE_PATH = r"C:\Users\Deepak.Powar\fifa\World Cup 2026 Comp.xlsx"
+FILE_PATH = str(BASE_DIR / "World Cup 2026 Comp.xlsx")
 
 
 NZ_TZ = ZoneInfo("Pacific/Auckland")
