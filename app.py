@@ -1123,19 +1123,25 @@ else:
 
         # If Excel not yet updated, try live ESPN API once kickoff has passed.
         # Check both orders so reversed source data still resolves.
-        if not result and dt and dt <= now:
-            result = (
-                _api_results.get((k1, k2))
-                or _api_results.get((k2, k1))
-                or _api_results.get((_team_key(team1), _team_key(team2)))
-                or _api_results.get((_team_key(team2), _team_key(team1)))
-            )
+
+# Fetch result from API if not present
+if (result is None or str(result).strip() == "") and dt and dt <= now:
+    api_result = (
+        _api_results.get((k1, k2))
+        or _api_results.get((k2, k1))
+        or _api_results.get((_team_key(team1), _team_key(team2)))
+        or _api_results.get((_team_key(team2), _team_key(team1)))
+    )
+
+    if api_result:
+        result = api_result.strip()
+
 
         f1 = flag_html(get_flag_url(team1))
         f2 = flag_html(get_flag_url(team2))
 
         # ── Status: show upcoming before kickoff, live around kickoff, otherwise waiting for result ──
-        if result:
+        if result is not None and str(result).strip() != "":
             status = "Finished"
         elif dt:
             diff = (now - dt).total_seconds()
