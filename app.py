@@ -952,11 +952,12 @@ def fetch_live_scores():
     return _out
 
 
-def sync_results_to_excel(
-file_path, api_results, sheet_name="Sheet1"):
+def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="Sheet1"):
     """
     Write API results back into the Excel Result column.
     Only fills blank Result cells so manual values stay intact.
+    Skips any match that is currently live (present in live_scores) to
+    prevent pre/in-match 0-0 scores being written as final results.
     """
     wb = load_workbook(file_path)
     ws = wb[sheet_name]
@@ -967,13 +968,16 @@ file_path, api_results, sheet_name="Sheet1"):
         if ws.cell(1, c).value is not None
     }
 
-    c_team1 = headers.get("Team 1")
-    c_team2 = headers.get("Team 2")
+    c_team1  = headers.get("Team 1")
+    c_team2  = headers.get("Team 2")
     c_result = headers.get("Result")
+    c_date   = headers.get("Date (NZDT)")
+    c_time   = headers.get("Time (NZDT)")
 
     if not c_team1 or not c_team2 or not c_result:
         raise ValueError("Missing required columns: Team 1, Team 2, Result")
 
+    _now_sync = datetime.now(NZ_TZ)
     updated = 0
 
     for r in range(2, ws.max_row + 1):
@@ -990,6 +994,29 @@ file_path, api_results, sheet_name="Sheet1"):
 
         k1 = _team_key(team1)
         k2 = _team_key(team2)
+
+        # Skip matches that are currently live.
+        if live_scores and (live_scores.get((k1, k2)) or live_scores.get((k2, k1))):
+            continue
+
+        # Skip matches that are within the live window (0-130 min after kick-off)
+        # to avoid writing a 0-0 placeholder as a final result.
+        try:
+            if c_date and c_time:
+                _raw_date = ws.cell(r, c_date).value
+                _raw_time = ws.cell(r, c_time).value
+                if _raw_date is not None:
+                    _match_dt = pd.to_datetime(_raw_date)
+                    _t = parse_time(_raw_time)
+                    if _t:
+                        _match_dt = datetime.combine(_match_dt.date(), _t).replace(tzinfo=NZ_TZ)
+                    else:
+                        _match_dt = _match_dt.replace(tzinfo=NZ_TZ)
+                    _secs = (_now_sync - _match_dt).total_seconds()
+                    if 0 <= _secs <= (130 * 60):
+                        continue  # still in live window
+        except Exception:
+            pass
 
         winner = api_results.get((k1, k2)) or api_results.get((k2, k1))
         if winner:
@@ -1011,7 +1038,7 @@ except:
 _api_results = fetch_api_results()
 _live_scores = fetch_live_scores()
 try:
-    _ = sync_results_to_excel(FILE_PATH, _api_results)
+    _ = sync_results_to_excel(FILE_PATH, _api_results, live_scores=_live_scores)
 except Exception as e:
     st.warning(f"Could not sync API results back to Excel: {e}")
 
@@ -1307,18 +1334,40 @@ else:
         api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
         has_result = result is not None and str(result).strip() != ""
         live_state = str((live or {}).get("status", "")).casefold()
-        is_live_feed = bool(live and any(k in live_state for k in (
-            "live", "in progress", "inprogress", "1st half", "2nd half",
-            "half time", "halftime", "ht", "extra time", "penalty"
-        )))
+
+        # Detect live: match keyword-based phrases OR ESPN's short 'in'/'active' codes.
+        # _live_scores only ever stores in-progress matches, so if live is set it IS live.
+        is_live_feed = bool(
+            live and (
+                any(k in live_state for k in (
+                    "live", "in progress", "inprogress", "1st half", "2nd half",
+                    "half time", "halftime", "ht", "extra time", "penalty"
+                ))
+                or live_state in ("in", "active", "in_progress", "inprogress")
+                or live is not None  # fallback: trust _live_scores entirely
+            )
+        )
         is_finished_feed = bool(live and any(k in live_state for k in (
             "finished", "completed", "final", "post", "postperiod"
         )))
 
-        # Never let live feed matches be overwritten by stale/early final results.
+        # Time-based live-window guard (0 – 130 min after kick-off).
+        # Prevents a stale 0-0 "Draw" from the API being shown as final
+        # while the match is still in progress or only just finished.
+        _secs_since_ko = (now - dt).total_seconds() if dt else 9999
+        _in_live_window = dt is not None and 0 <= _secs_since_ko <= (130 * 60)
+
         if is_live_feed:
+            # Live data is available – clear any stale Excel / API result.
             has_result = False
-        elif not has_result and api_result:
+            result = None
+        elif _in_live_window and has_result and _is_draw_result(result):
+            # A "Draw" within the live window is likely a pre-match / in-progress
+            # 0-0 placeholder written to Excel by a previous run.  Treat as pending.
+            has_result = False
+            result = None
+        elif not has_result and api_result and not _in_live_window:
+            # Match is clearly over (> 130 min since kick-off) – trust the API result.
             result = str(api_result).strip()
             has_result = True
 
