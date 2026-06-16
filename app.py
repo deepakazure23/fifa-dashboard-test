@@ -803,7 +803,7 @@ def fetch_live_scores():
     def _is_liveish(status_text):
         return any(k in status_text for k in (
             "live", "in progress", "inprogress", "1st half", "2nd half",
-            "half time", "halftime", "ht", "extra time", "penalty", "postperiod"
+            "half time", "halftime", "ht", "extra time", "penalty"
         ))
 
     def _is_finishedish(status_text):
@@ -880,7 +880,7 @@ def fetch_live_scores():
                         _comp = (_ev.get("competitions") or [{}])[0]
                         _status = _comp.get("status", {}).get("type", {}).get("state", "").lower()
 
-                        if _status not in ("in", "in_progress", "live", "active", "postperiod"):
+                        if _status not in ("in", "in_progress", "live", "active"):
                             continue
 
                         _teams = _comp.get("competitors", [])
@@ -1298,7 +1298,6 @@ else:
         live = (_live_scores.get((k1, k2)) or _live_scores.get((k2, k1))) if '_live_scores' in globals() else None
         api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
         has_result = result is not None and str(result).strip() != ""
-        live_window = bool(dt and dt <= now and (now - dt).total_seconds() <= 9000)
         live_state = str((live or {}).get("status", "")).casefold()
         finalized_live_draw = bool(
             live
@@ -1308,16 +1307,11 @@ else:
             and any(k in live_state for k in ("postperiod", "post", "finished", "completed", "final"))
         )
 
-        # Never overwrite a live match with a final result.
-        if not live and not has_result and dt and dt <= now:
-            if api_result:
-                result = str(api_result).strip()
-                has_result = True
-
-        if (not live) and (not has_result):
-            if api_result:
-                result = str(api_result).strip()
-                has_result = True
+        # If a final result is already known, use it immediately.
+        # Do not let a live provider response override a completed match.
+        if not has_result and api_result:
+            result = str(api_result).strip()
+            has_result = True
 
         # Some providers expose a 0-0 / 1-1 final score before the Result column is filled.
         # Treat those as finished draws so they do not remain stuck on WAITING FOR RESULT.
@@ -1328,11 +1322,11 @@ else:
         f1 = flag_html(get_flag_url(team1))
         f2 = flag_html(get_flag_url(team2))
 
-        # ── Status: live overrides everything else ──
-        if (live or live_window) and not finalized_live_draw:
-            status = "LIVE"
-        elif has_result or finalized_live_draw:
+        # ── Status: finished overrides live; live only when the live feed says so ──
+        if has_result or finalized_live_draw:
             status = "Finished"
+        elif live:
+            status = "LIVE"
         elif dt:
             diff = (now - dt).total_seconds()
             if diff < 0:
