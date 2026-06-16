@@ -511,6 +511,7 @@ _ESPN_MAP = {
     "republic of korea":"South Korea",
     "ir iran":"Iran","iran":"Iran",
     "côte d'ivoire":"Ivory Coast","ivory coast":"Ivory Coast",
+    "cabo verde":"Cape Verde","cape verde":"Cape Verde",
     "bosnia & herzegovina":"Bosnia and Herzegovina",
     "bosnia and herzegovina":"Bosnia and Herzegovina",
     "north macedonia":"North Macedonia",
@@ -727,15 +728,17 @@ def fetch_api_results():
     return _out
 
 
+
 @st.cache_data(ttl=15)
 def fetch_live_scores():
     """Fetch live scores for ongoing matches.
-    Tries FIFA first, then ESPN fallback.
+    Tries FIFA first, then ESPN, then Scoreaxis fallback.
     Returns mapping of (team_key_a, team_key_b) -> {"home": int, "away": int, "status": str}
     """
     _out = {}
     _now = datetime.now(NZ_TZ)
-    _diso = _now.strftime("%Y-%m-%d")
+    _days = [(_now.date() + timedelta(days=d)).strftime("%Y%m%d") for d in (-1, 0, 1)]
+    _iso_days = [(_now.date() + timedelta(days=d)).strftime("%Y-%m-%d") for d in (-1, 0, 1)]
 
     _fifa_urls = [
         "https://api.fifa.com/api/v3/calendar/matches?count=500&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
@@ -797,59 +800,67 @@ def fetch_live_scores():
             bits.append(str(v))
         return " ".join(bits).casefold()
 
-    def _consume_fifa(payload):
-        for _ev in payload.get("Results") or []:
-            _h = _team_name(_ev.get("Home"))
-            _a = _team_name(_ev.get("Away"))
-            if not _h or not _a:
-                continue
+    def _is_liveish(status_text):
+        return any(k in status_text for k in (
+            "live", "in progress", "inprogress", "1st half", "2nd half",
+            "half time", "halftime", "ht", "extra time", "penalty", "postperiod"
+        ))
 
-            _status = _status_text(
-                _ev.get("Status"),
-                _ev.get("MatchStatus"),
-                _ev.get("status"),
-                _ev.get("Phase"),
-                _ev.get("Progress"),
-                _ev.get("State"),
-                _ev.get("GameStatus"),
-                _ev.get("MatchState"),
-                _ev.get("CompetitionStatus"),
-                _ev.get("StatusDescription"),
-                _ev.get("Description"),
-            )
+    def _is_finishedish(status_text):
+        return any(k in status_text for k in (
+            "final", "finished", "completed", "full time", "ft", "aet", "post", "ended"
+        ))
 
-            if not any(k in _status for k in (
-                "live", "in progress", "inprogress", "1st half", "2nd half",
-                "half time", "extra time", "penalty", "post", "postperiod",
-                "halftime", "ht"
-            )):
-                continue
+    def _store_pair(team_a, team_b, score_a, score_b, status):
+        _n0 = _norm_team(team_a)
+        _n1 = _norm_team(team_b)
+        _out[(_team_key(_n0), _team_key(_n1))] = {"home": score_a, "away": score_b, "status": status}
+        _out[(_team_key(_n1), _team_key(_n0))] = {"home": score_b, "away": score_a, "status": status}
 
-            hs = _score(_ev.get("Home"), "Score", "HomeTeamScore")
-            as_ = _score(_ev.get("Away"), "Score", "AwayTeamScore")
-            if hs is None:
-                hs = _score(_ev, "HomeTeamScore", "HomeScore")
-            if as_ is None:
-                as_ = _score(_ev, "AwayTeamScore", "AwayScore")
-            if hs is None or as_ is None:
-                continue
-
-            _n0 = _norm_team(_h)
-            _n1 = _norm_team(_a)
-            _out[(_team_key(_n0), _team_key(_n1))] = {"home": hs, "away": as_, "status": _status}
-            _out[(_team_key(_n1), _team_key(_n0))] = {"home": as_, "away": hs, "status": _status}
-
+    # FIFA live feed first
     for _url in _fifa_urls:
         try:
             _resp = req.get(_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
             if _resp.status_code != 200:
                 continue
-            _consume_fifa(_resp.json())
+
+            for _ev in (_resp.json().get("Results") or []):
+                _h = _team_name(_ev.get("Home"))
+                _a = _team_name(_ev.get("Away"))
+                if not _h or not _a:
+                    continue
+
+                _status = _status_text(
+                    _ev.get("Status"),
+                    _ev.get("MatchStatus"),
+                    _ev.get("status"),
+                    _ev.get("Phase"),
+                    _ev.get("Progress"),
+                    _ev.get("State"),
+                    _ev.get("GameStatus"),
+                    _ev.get("MatchState"),
+                    _ev.get("CompetitionStatus"),
+                    _ev.get("StatusDescription"),
+                    _ev.get("Description"),
+                )
+
+                hs = _score(_ev.get("Home"), "Score", "HomeTeamScore")
+                as_ = _score(_ev.get("Away"), "Score", "AwayTeamScore")
+                if hs is None:
+                    hs = _score(_ev, "HomeTeamScore", "HomeScore")
+                if as_ is None:
+                    as_ = _score(_ev, "AwayTeamScore", "AwayScore")
+
+                # Accept any clearly live event with available scores.
+                if hs is not None and as_ is not None and (_is_liveish(_status) or not _is_finishedish(_status)):
+                    _store_pair(_h, _a, hs, as_, _status or "live")
+
             if _out:
                 break
         except Exception:
             continue
 
+    # ESPN fallback
     if not _out:
         _espn_slugs = [
             "fifa.worldcup",
@@ -857,7 +868,7 @@ def fetch_live_scores():
             "global.2026-fifa-world-cup",
             "fifa.worldcup.2026",
         ]
-        for _day in [_now.strftime("%Y%m%d")]:
+        for _day in _days:
             for _slug in _espn_slugs:
                 try:
                     _url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_day}"
@@ -882,18 +893,54 @@ def fetch_live_scores():
                         except Exception:
                             continue
 
-                        _n0 = _norm_team(_names[0])
-                        _n1 = _norm_team(_names[1])
-
-                        k0 = _team_key(_n0)
-                        k1 = _team_key(_n1)
-
-                        _out[(k0, k1)] = {"home": _scores[0], "away": _scores[1], "status": _status}
-                        _out[(k1, k0)] = {"home": _scores[1], "away": _scores[0], "status": _status}
+                        _store_pair(_names[0], _names[1], _scores[0], _scores[1], _status)
+                    if _out:
+                        break
                 except Exception:
                     continue
             if _out:
                 break
+
+    # Scoreaxis fallback
+    if not _out:
+        for _day in _iso_days:
+            try:
+                _url = f"https://www.scoreaxis.com/api/live-events?sport=1&date={_day}&timeZone=0"
+                _resp = req.get(_url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+                if _resp.status_code != 200:
+                    continue
+                _events = (_resp.json().get("data", {}).get("events") or [])
+                for _ev in _events:
+                    _status = str(
+                        _ev.get("statusText")
+                        or _ev.get("status")
+                        or _ev.get("matchStatus")
+                        or _ev.get("phase")
+                        or ""
+                    ).casefold()
+
+                    # Use only live-ish Scoreaxis rows that are not finished.
+                    if _ev.get("statusFinished") is True:
+                        continue
+                    if not (_is_liveish(_status) or "live" in _status or "in progress" in _status or "half" in _status):
+                        continue
+
+                    _h = _ESPN_MAP.get((_ev.get("homeTeamName") or "").lower(), _ev.get("homeTeamName", ""))
+                    _a = _ESPN_MAP.get((_ev.get("awayTeamName") or "").lower(), _ev.get("awayTeamName", ""))
+                    if not _h or not _a:
+                        continue
+
+                    try:
+                        _hs = int(_ev.get("homeScore", 0) or 0)
+                        _as = int(_ev.get("awayScore", 0) or 0)
+                    except Exception:
+                        continue
+
+                    _store_pair(_h, _a, _hs, _as, _status or "live")
+                if _out:
+                    break
+            except Exception:
+                continue
 
     return _out
 
@@ -1282,7 +1329,7 @@ else:
         f2 = flag_html(get_flag_url(team2))
 
         # ── Status: live overrides everything else ──
-        if live_window and not finalized_live_draw:
+        if (live or live_window) and not finalized_live_draw:
             status = "LIVE"
         elif has_result or finalized_live_draw:
             status = "Finished"
