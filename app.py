@@ -511,13 +511,14 @@ _ESPN_MAP = {
     "republic of korea":"South Korea",
     "ir iran":"Iran","iran":"Iran",
     "côte d'ivoire":"Ivory Coast","ivory coast":"Ivory Coast",
-    "cabo verde":"Cape Verde","cape verde":"Cape Verde",
     "bosnia & herzegovina":"Bosnia and Herzegovina",
     "bosnia and herzegovina":"Bosnia and Herzegovina",
     "north macedonia":"North Macedonia",
     "czechia":"Czech Republic","czech republic":"Czech Republic",
     "dr congo":"DR Congo","congo dr":"DR Congo",
     "saint kitts and nevis":"St Kitts and Nevis",
+    "cabo verde":"Cape Verde",
+    "cape verde":"Cape Verde",
 }
 
 def _norm_team(name):
@@ -545,12 +546,746 @@ def _is_draw_result(value):
     return bool(m and m.group(1) == m.group(2))
 
 
+def _status_text(*values):
+    bits = []
+    for v in values:
+        if v is None:
+            continue
+        if isinstance(v, dict):
+            for key in ("Description", "Name", "Text", "Status", "State", "Phase"):
+                if v.get(key):
+                    bits.append(str(v.get(key)))
+            continue
+        if isinstance(v, list):
+            for item in v:
+                bits.append(str(item))
+            continue
+        bits.append(str(v))
+    return " ".join(bits).casefold()
+
+
+def _is_liveish(status_text):
+    return any(k in status_text for k in (
+        "live", "in progress", "inprogress", "1st half", "2nd half",
+        "half time", "halftime", "ht", "extra time", "penalty"
+    ))
+
+
+def _is_finishedish(status_text):
+    return any(k in status_text for k in (
+        "final", "finished", "completed", "full time", "ft", "aet", "post", "ended"
+    ))
+
 
 @st.cache_data(ttl=45)
 def fetch_api_results():
-    """Fetch only finished results from official / fallback providers."""
+    """Fetch only finished WC2026 results from official / fallback providers."""
     _out = {}
-    _
+    _now = datetime.now(NZ_TZ)
+    _diso = _now.strftime("%Y-%m-%d")
+
+    _urls = [
+        "https://api.fifa.com/api/v3/calendar/matches?count=500&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
+        "https://api.fifa.com/api/v3/calendar/matches?count=500&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en&sort=Date",
+    ]
+
+    def _first_desc(val):
+        if isinstance(val, list) and val:
+            v = val[0]
+            if isinstance(v, dict):
+                return v.get("Description") or v.get("Name") or v.get("Text") or ""
+            return str(v)
+        if isinstance(val, dict):
+            return val.get("Description") or val.get("Name") or val.get("Text") or ""
+        if val is None:
+            return ""
+        return str(val)
+
+    def _team_name(block):
+        if not isinstance(block, dict):
+            return ""
+        for k in ("ShortClubName", "TeamName", "Name", "Abbreviation"):
+            v = block.get(k)
+            if v:
+                desc = _first_desc(v)
+                if desc:
+                    return desc.strip()
+        return ""
+
+    def _score(block, primary_key, fallback_key):
+        try:
+            if isinstance(block, dict):
+                v = block.get(primary_key)
+                if v is None:
+                    v = block.get(fallback_key)
+                if v is None and "Score" in block:
+                    v = block.get("Score")
+                if v is None:
+                    return None
+                return int(v)
+        except:
+            pass
+        return None
+
+    def _consume(payload):
+        for _ev in payload.get("Results") or []:
+            _h = _team_name(_ev.get("Home"))
+            _a = _team_name(_ev.get("Away"))
+            if not _h or not _a:
+                continue
+
+            _status = _status_text(
+                _ev.get("Status"),
+                _ev.get("MatchStatus"),
+                _ev.get("status"),
+                _ev.get("Phase"),
+                _ev.get("Progress"),
+                _ev.get("State"),
+                _ev.get("GameStatus"),
+                _ev.get("MatchState"),
+                _ev.get("CompetitionStatus"),
+                _ev.get("StatusDescription"),
+                _ev.get("Description"),
+            )
+
+            # Skip anything that is not explicitly finished.
+            if _is_liveish(_status) or not _is_finishedish(_status):
+                continue
+
+            hs = _score(_ev.get("Home"), "Score", "HomeTeamScore")
+            as_ = _score(_ev.get("Away"), "Score", "AwayTeamScore")
+            if hs is None:
+                hs = _score(_ev, "HomeTeamScore", "HomeScore")
+            if as_ is None:
+                as_ = _score(_ev, "AwayTeamScore", "AwayScore")
+            if hs is None or as_ is None:
+                continue
+
+            _n0 = _norm_team(_h)
+            _n1 = _norm_team(_a)
+            _w = _n0 if hs > as_ else _n1 if as_ > hs else "Draw"
+            _out[(_team_key(_n0), _team_key(_n1))] = _w
+            _out[(_team_key(_n1), _team_key(_n0))] = _w
+
+    for _url in _urls:
+        try:
+            _resp = req.get(_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if _resp.status_code != 200:
+                continue
+            _consume(_resp.json())
+            if _out:
+                break
+        except:
+            continue
+
+    if not _out:
+        _days = [(_now.date() + timedelta(days=d)).strftime("%Y%m%d") for d in (-1, 0, 1)]
+        _espn_slugs = [
+            "fifa.worldcup",
+            "fifa.world",
+            "global.2026-fifa-world-cup",
+            "fifa.worldcup.2026",
+        ]
+        for _day in _days:
+            for _slug in _espn_slugs:
+                try:
+                    _url  = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_day}"
+                    _resp = req.get(_url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+                    if _resp.status_code != 200:
+                        continue
+                    _data = _resp.json()
+                    for _ev in _data.get("events", []):
+                        _comp  = (_ev.get("competitions") or [{}])[0]
+                        _status = _comp.get("status", {}).get("type", {})
+                        _done  = bool(_status.get("completed", False) or _status.get("state") == "post")
+                        if not _done:
+                            continue
+
+                        _teams = _comp.get("competitors", [])
+                        if len(_teams) < 2:
+                            continue
+
+                        _names = [t.get("team", {}).get("displayName", "") for t in _teams]
+                        _scores = []
+                        for _t in _teams:
+                            try:
+                                _scores.append(int(_t.get("score", 0) or 0))
+                            except:
+                                _scores.append(0)
+
+                        _n0 = _norm_team(_names[0])
+                        _n1 = _norm_team(_names[1])
+                        _w  = _n0 if _scores[0] > _scores[1] else _n1 if _scores[1] > _scores[0] else "Draw"
+                        _out[(_team_key(_n0), _team_key(_n1))] = _w
+                        _out[(_team_key(_n1), _team_key(_n0))] = _w
+                    if _out:
+                        break
+                except:
+                    continue
+            if _out:
+                break
+
+    if not _out:
+        try:
+            _url  = f"https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d={_diso}&l=FIFA+World+Cup"
+            _resp = req.get(_url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+            if _resp.status_code == 200:
+                _fin_stati = {"match finished","ft","aet","pen","ap"}
+                for _ev in (_resp.json().get("events") or []):
+                    _st = (_ev.get("strStatus") or "").lower().strip()
+                    _hs_raw = _ev.get("intHomeScore")
+                    _as_raw = _ev.get("intAwayScore")
+                    if _st not in _fin_stati or _hs_raw is None: continue
+                    _h = _ESPN_MAP.get((_ev.get("strHomeTeam") or "").lower(), _ev.get("strHomeTeam", ""))
+                    _a = _ESPN_MAP.get((_ev.get("strAwayTeam") or "").lower(), _ev.get("strAwayTeam", ""))
+                    try: _hs, _as = int(_hs_raw), int(_as_raw)
+                    except: _hs, _as = 0, 0
+                    _w = _h if _hs>_as else _a if _as>_hs else "Draw"
+                    _out[(_h.lower(), _a.lower())] = _w
+                    _out[(_a.lower(), _h.lower())] = _w
+        except:
+            pass
+
+    if not _out:
+        try:
+            _url  = f"https://www.scoreaxis.com/api/live-events?sport=1&date={_diso}&timeZone=0"
+            _resp = req.get(_url, timeout=6, headers={"User-Agent":"Mozilla/5.0"})
+            if _resp.status_code == 200:
+                for _ev in (_resp.json().get("data",{}).get("events") or []):
+                    if not _ev.get("statusFinished"): continue
+                    _h = _ESPN_MAP.get((_ev.get("homeTeamName") or "").lower(), _ev.get("homeTeamName",""))
+                    _a = _ESPN_MAP.get((_ev.get("awayTeamName") or "").lower(), _ev.get("awayTeamName",""))
+                    try: _hs = int(_ev.get("homeScore",0)); _as = int(_ev.get("awayScore",0))
+                    except: _hs, _as = 0, 0
+                    _w = _h if _hs>_as else _a if _as>_hs else "Draw"
+                    _out[(_h.lower(), _a.lower())] = _w
+                    _out[(_a.lower(), _h.lower())] = _w
+        except:
+            pass
+
+    return _out
+
+
+@st.cache_data(ttl=15)
+def fetch_live_scores():
+    """Fetch live scores for ongoing matches.
+    Tries FIFA first, then ESPN, then Scoreaxis fallback.
+    Returns mapping of (team_key_a, team_key_b) -> {"home": int, "away": int, "status": str}
+    """
+    _out = {}
+    _now = datetime.now(NZ_TZ)
+    _days = [(_now.date() + timedelta(days=d)).strftime("%Y%m%d") for d in (-1, 0, 1)]
+    _iso_days = [(_now.date() + timedelta(days=d)).strftime("%Y-%m-%d") for d in (-1, 0, 1)]
+
+    _fifa_urls = [
+        "https://api.fifa.com/api/v3/calendar/matches?count=500&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
+        "https://api.fifa.com/api/v3/calendar/matches?count=500&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en&sort=Date",
+    ]
+
+    def _first_desc(val):
+        if isinstance(val, list) and val:
+            v = val[0]
+            if isinstance(v, dict):
+                return v.get("Description") or v.get("Name") or v.get("Text") or ""
+            return str(v)
+        if isinstance(val, dict):
+            return val.get("Description") or val.get("Name") or val.get("Text") or ""
+        if val is None:
+            return ""
+        return str(val)
+
+    def _team_name(block):
+        if not isinstance(block, dict):
+            return ""
+        for k in ("ShortClubName", "TeamName", "Name", "Abbreviation"):
+            v = block.get(k)
+            if v:
+                desc = _first_desc(v)
+                if desc:
+                    return desc.strip()
+        return ""
+
+    def _score(block, primary_key, fallback_key):
+        try:
+            if isinstance(block, dict):
+                v = block.get(primary_key)
+                if v is None:
+                    v = block.get(fallback_key)
+                if v is None and "Score" in block:
+                    v = block.get("Score")
+                if v is None:
+                    return None
+                return int(v)
+        except Exception:
+            pass
+        return None
+
+    def _store_pair(team_a, team_b, score_a, score_b, status):
+        _n0 = _norm_team(team_a)
+        _n1 = _norm_team(team_b)
+        _out[(_team_key(_n0), _team_key(_n1))] = {"home": score_a, "away": score_b, "status": status}
+        _out[(_team_key(_n1), _team_key(_n0))] = {"home": score_b, "away": score_a, "status": status}
+
+    # FIFA live feed first
+    for _url in _fifa_urls:
+        try:
+            _resp = req.get(_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if _resp.status_code != 200:
+                continue
+
+            for _ev in (_resp.json().get("Results") or []):
+                _h = _team_name(_ev.get("Home"))
+                _a = _team_name(_ev.get("Away"))
+                if not _h or not _a:
+                    continue
+
+                _status = _status_text(
+                    _ev.get("Status"),
+                    _ev.get("MatchStatus"),
+                    _ev.get("status"),
+                    _ev.get("Phase"),
+                    _ev.get("Progress"),
+                    _ev.get("State"),
+                    _ev.get("GameStatus"),
+                    _ev.get("MatchState"),
+                    _ev.get("CompetitionStatus"),
+                    _ev.get("StatusDescription"),
+                    _ev.get("Description"),
+                )
+
+                hs = _score(_ev.get("Home"), "Score", "HomeTeamScore")
+                as_ = _score(_ev.get("Away"), "Score", "AwayTeamScore")
+                if hs is None:
+                    hs = _score(_ev, "HomeTeamScore", "HomeScore")
+                if as_ is None:
+                    as_ = _score(_ev, "AwayTeamScore", "AwayScore")
+
+                if hs is not None and as_ is not None and _is_liveish(_status) and not _is_finishedish(_status):
+                    _store_pair(_h, _a, hs, as_, _status or "live")
+
+            if _out:
+                break
+        except Exception:
+            continue
+
+    # ESPN fallback
+    if not _out:
+        _espn_slugs = [
+            "fifa.worldcup",
+            "fifa.world",
+            "global.2026-fifa-world-cup",
+            "fifa.worldcup.2026",
+        ]
+        for _day in _days:
+            for _slug in _espn_slugs:
+                try:
+                    _url = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_day}"
+                    _resp = req.get(_url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+                    if _resp.status_code != 200:
+                        continue
+                    _data = _resp.json()
+                    for _ev in _data.get("events", []):
+                        _comp = (_ev.get("competitions") or [{}])[0]
+                        _status = _comp.get("status", {}).get("type", {}).get("state", "").lower()
+
+                        if _status not in ("in", "in_progress", "live", "active"):
+                            continue
+
+                        _teams = _comp.get("competitors", [])
+                        if len(_teams) < 2:
+                            continue
+
+                        try:
+                            _names = [t.get("team", {}).get("displayName", "") for t in _teams]
+                            _scores = [int(t.get("score", 0) or 0) for t in _teams]
+                        except Exception:
+                            continue
+
+                        _store_pair(_names[0], _names[1], _scores[0], _scores[1], _status)
+                    if _out:
+                        break
+                except Exception:
+                    continue
+            if _out:
+                break
+
+    # Scoreaxis fallback
+    if not _out:
+        for _day in _iso_days:
+            try:
+                _url = f"https://www.scoreaxis.com/api/live-events?sport=1&date={_day}&timeZone=0"
+                _resp = req.get(_url, timeout=8, headers={"User-Agent": "Mozilla/5.0"})
+                if _resp.status_code != 200:
+                    continue
+                _events = (_resp.json().get("data", {}).get("events") or [])
+                for _ev in _events:
+                    _status = str(
+                        _ev.get("statusText")
+                        or _ev.get("status")
+                        or _ev.get("matchStatus")
+                        or _ev.get("phase")
+                        or ""
+                    ).casefold()
+
+                    if _ev.get("statusFinished") is True:
+                        continue
+                    if not (_is_liveish(_status) or "live" in _status or "in progress" in _status or "half" in _status):
+                        continue
+
+                    _h = _ESPN_MAP.get((_ev.get("homeTeamName") or "").lower(), _ev.get("homeTeamName", ""))
+                    _a = _ESPN_MAP.get((_ev.get("awayTeamName") or "").lower(), _ev.get("awayTeamName", ""))
+                    if not _h or not _a:
+                        continue
+
+                    try:
+                        _hs = int(_ev.get("homeScore", 0) or 0)
+                        _as = int(_ev.get("awayScore", 0) or 0)
+                    except Exception:
+                        continue
+
+                    _store_pair(_h, _a, _hs, _as, _status or "live")
+                if _out:
+                    break
+            except Exception:
+                continue
+
+    return _out
+
+
+def sync_results_to_excel(
+file_path, api_results, sheet_name="Sheet1"):
+    """
+    Write API results back into the Excel Result column.
+    Only fills blank Result cells so manual values stay intact.
+    """
+    wb = load_workbook(file_path)
+    ws = wb[sheet_name]
+
+    headers = {
+        str(ws.cell(1, c).value).strip(): c
+        for c in range(1, ws.max_column + 1)
+        if ws.cell(1, c).value is not None
+    }
+
+    c_team1 = headers.get("Team 1")
+    c_team2 = headers.get("Team 2")
+    c_result = headers.get("Result")
+
+    if not c_team1 or not c_team2 or not c_result:
+        raise ValueError("Missing required columns: Team 1, Team 2, Result")
+
+    updated = 0
+
+    for r in range(2, ws.max_row + 1):
+        team1 = ws.cell(r, c_team1).value
+        team2 = ws.cell(r, c_team2).value
+        current_result = ws.cell(r, c_result).value
+
+        if team1 is None or team2 is None:
+            continue
+
+        # Keep manual values if already present.
+        if current_result is not None and str(current_result).strip() != "":
+            continue
+
+        k1 = _team_key(team1)
+        k2 = _team_key(team2)
+
+        winner = api_results.get((k1, k2)) or api_results.get((k2, k1))
+        if winner:
+            ws.cell(r, c_result).value = winner
+            updated += 1
+
+    if updated:
+        wb.save(file_path)
+
+    return updated
+
+
+# mtime cache key → re-reads Excel only when file is saved
+try:
+    _mtime = os.path.getmtime(FILE_PATH)
+except:
+    _mtime = 0
+
+_api_results = fetch_api_results()
+_live_scores = fetch_live_scores()
+try:
+    _ = sync_results_to_excel(FILE_PATH, _api_results)
+except Exception as e:
+    st.warning(f"Could not sync API results back to Excel: {e}")
+
+try:
+    _mtime = os.path.getmtime(FILE_PATH)
+except:
+    _mtime = 0
+
+df = load_data(_mtime)
+
+# Create an in-memory copy of the spreadsheet and fill missing Result cells
+# from API results so the UI updates immediately without requiring Excel writes.
+try:
+    _df_copy = df.copy()
+    for idx, _row in _df_copy.iterrows():
+        cur = _row.get("Result")
+        if pd.notna(cur) and str(cur).strip() != "":
+            continue
+        t1 = _row.get("Team 1")
+        t2 = _row.get("Team 2")
+        if pd.isna(t1) or pd.isna(t2):
+            continue
+        k1 = _team_key(t1)
+        k2 = _team_key(t2)
+        winner = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
+        if winner:
+            _df_copy.at[idx, "Result"] = winner
+    df = _df_copy
+except Exception:
+    pass
+
+# ── Smart refresh: only reload while finished matches are still awaiting an API result ───────
+_now = datetime.now(NZ_TZ)
+_today_matches = df[df["Date (NZDT)"].dt.date == _now.date()]
+_has_pending = False
+for _, _tm in _today_matches.iterrows():
+    _r_val = str(_tm["Result"]).strip() if pd.notna(_tm["Result"]) else None
+    _dt = _tm.get("DateTime")
+    # Only trigger polling for matches that should already have finished
+    if not _r_val and _dt and _dt <= _now:
+        _t1 = str(_tm["Team 1"]).strip() if pd.notna(_tm["Team 1"]) else ""
+        _t2 = str(_tm["Team 2"]).strip() if pd.notna(_tm["Team 2"]) else ""
+        if not (_api_results.get((_team_key(_t1), _team_key(_t2))) or _api_results.get((_team_key(_t2), _team_key(_t1)))):
+            _has_pending = True
+            break
+
+if _has_pending:
+    # Recheck soon after a match finishes, then back off to 30 minutes while pending.
+    _pending_minutes = []
+    for _, _tm in _today_matches.iterrows():
+        _r_val = str(_tm["Result"]).strip() if pd.notna(_tm["Result"]) else None
+        _dt = _tm.get("DateTime")
+        if not _r_val and _dt and _dt <= _now:
+            _pending_minutes.append((_now - _dt).total_seconds() / 60.0)
+
+    _delay_ms = 60000 if _pending_minutes and min(_pending_minutes) < 30 else 1800000
+    components.html(
+        f"<script>setTimeout(()=>window.parent.location.reload(true),{_delay_ms});</script>",
+        height=0
+    )
+
+# =========================
+# ✅ COMPREHENSIVE FLAG MAP  (all WC2026 nations + extras)
+# =========================
+TEAM_FLAG_MAP = {
+    # CONCACAF
+    "USA": "us", "United States": "us", "Mexico": "mx", "Canada": "ca",
+    "Jamaica": "jm", "Haiti": "ht", "Honduras": "hn", "Costa Rica": "cr",
+    "Panama": "pa", "Trinidad and Tobago": "tt", "Guatemala": "gt",
+    "El Salvador": "sv", "Cuba": "cu", "Nicaragua": "ni",
+    # CONMEBOL
+    "Argentina": "ar", "Brazil": "br", "Colombia": "co", "Ecuador": "ec",
+    "Uruguay": "uy", "Chile": "cl", "Paraguay": "py", "Venezuela": "ve",
+    "Bolivia": "bo", "Peru": "pe",
+    # UEFA
+    "Spain": "es", "England": "gb-eng", "France": "fr", "Germany": "de",
+    "Portugal": "pt", "Italy": "it", "Netherlands": "nl", "Belgium": "be",
+    "Switzerland": "ch", "Croatia": "hr", "Denmark": "dk", "Austria": "at",
+    "Sweden": "se", "Norway": "no", "Scotland": "gb-sct", "Ukraine": "ua",
+    "Türkiye": "tr", "Turkey": "tr", "Poland": "pl", "Wales": "gb-wls",
+    "Greece": "gr", "Hungary": "hu", "Albania": "al", "Slovakia": "sk",
+    "Serbia": "rs", "Czech Republic": "cz", "Finland": "fi", "Romania": "ro",
+    "Slovenia": "si", "Iceland": "is", "North Macedonia": "mk", "Georgia": "ge",
+    "Armenia": "am", "Bosnia and Herzegovina": "ba", "Bulgaria": "bg",
+    "Estonia": "ee", "Latvia": "lv", "Lithuania": "lt", "Luxembourg": "lu",
+    "Moldova": "md", "Montenegro": "me", "Northern Ireland": "gb-nir",
+    "Republic of Ireland": "ie", "Ireland": "ie", "Kosovo": "xk",
+    "Israel": "il", "Kazakhstan": "kz", "Belarus": "by", "Cyprus": "cy",
+    "Faroe Islands": "fo", "Gibraltar": "gi", "Liechtenstein": "li",
+    "Malta": "mt", "San Marino": "sm",
+    # CAF
+    "Morocco": "ma", "Egypt": "eg", "Nigeria": "ng", "Senegal": "sn",
+    "Cameroon": "cm", "Ghana": "gh", "Ivory Coast": "ci",
+    "Côte d'Ivoire": "ci", "Mali": "ml", "DR Congo": "cd",
+    "Congo DR": "cd", "South Africa": "za", "Algeria": "dz",
+    "Tunisia": "tn", "Zambia": "zm", "Zimbabwe": "zw", "Kenya": "ke",
+    "Uganda": "ug", "Tanzania": "tz", "Angola": "ao", "Burkina Faso": "bf",
+    "Benin": "bj", "Cape Verde": "cv", "Comoros": "km", "Ethiopia": "et",
+    "Gabon": "ga", "Guinea": "gn", "Guinea-Bissau": "gw", "Libya": "ly",
+    "Madagascar": "mg", "Malawi": "mw", "Mauritania": "mr",
+    "Mozambique": "mz", "Namibia": "na", "Niger": "ne", "Rwanda": "rw",
+    "Sudan": "sd", "Togo": "tg", "Liberia": "lr", "Sierra Leone": "sl",
+    "Equatorial Guinea": "gq",
+    # AFC
+    "Japan": "jp", "South Korea": "kr", "Korea Republic": "kr",
+    "Iran": "ir", "Iraq": "iq", "Jordan": "jo", "Uzbekistan": "uz",
+    "Saudi Arabia": "sa", "Australia": "au", "Indonesia": "id",
+    "Qatar": "qa", "UAE": "ae", "United Arab Emirates": "ae",
+    "China": "cn", "Thailand": "th", "Vietnam": "vn", "Philippines": "ph",
+    "Bahrain": "bh", "Kuwait": "kw", "Oman": "om", "Syria": "sy",
+    "Kyrgyzstan": "kg", "Tajikistan": "tj", "India": "in", "Myanmar": "mm",
+    "Palestine": "ps", "Lebanon": "lb", "Nepal": "np",
+    # OFC
+    "New Zealand": "nz", "Fiji": "fj", "Papua New Guinea": "pg",
+    "Solomon Islands": "sb", "Vanuatu": "vu",
+}
+
+def get_flag_url(team):
+    code = TEAM_FLAG_MAP.get(str(team).strip())
+    return f"https://flagcdn.com/w80/{code}.png" if code else None
+
+def flag_html(url):
+    if url:
+        return f'<img src="{url}" class="flag-img" onerror="this.style.display=\'none\'">'
+    return '<span class="flag-blank"></span>'
+
+# =========================
+# ✅ LEADERBOARD
+# =========================
+
+completed_matches = int(df["Result"].notna().sum())
+valid_matches = df[df["Team 1"].notna() & df["Team 2"].notna()]
+total_matches = len(valid_matches)
+completed_matches = valid_matches["Result"].notna().sum()
+remaining_matches = total_matches - completed_matches
+player_count = len([c for c in df.columns if "Pick" in c])
+st.markdown(f"""
+<div class="stat-row">
+    <div class="stat-card" data-icon="🏟️">
+        <div class="stat-label">Total Matches</div>
+        <div class="stat-value blue">{total_matches}</div>
+        <div class="stat-sublabel">Tournament Fixtures</div>
+    </div>
+    <div class="stat-card" data-icon="✅">
+        <div class="stat-label">Completed</div>
+        <div class="stat-value green">{completed_matches}</div>
+        <div class="stat-sublabel">Results Available</div>
+    </div>
+    <div class="stat-card" data-icon="⏳">
+        <div class="stat-label">Remaining</div>
+        <div class="stat-value orange">{remaining_matches}</div>
+        <div class="stat-sublabel">To Be Played</div>
+    </div>
+    <div class="stat-card" data-icon="👥">
+        <div class="stat-label">Players</div>
+        <div class="stat-value gold">{player_count}</div>
+        <div class="stat-sublabel">Prediction Participants</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+pick_cols = [col for col in df.columns if "Pick" in col]
+
+records = []
+for col in pick_cols:
+    player_name = col.replace(" Pick", "")
+    for _, row in df.iterrows():
+        t1 = str(row["Team 1"]) if pd.notna(row["Team 1"]) else "TBD"
+        t2 = str(row["Team 2"]) if pd.notna(row["Team 2"]) else "TBD"
+        records.append({
+            "Player": player_name,
+            "Match":  f"{t1} vs {t2}",
+            "Pick":   row[col],
+            "Result": row["Result"],
+        })
+
+data = pd.DataFrame(records)
+data["Correct"] = (data["Pick"] == data["Result"]).astype("float")
+
+played = data[data["Result"].notna()]
+
+leaderboard = (
+    played.groupby("Player")
+    .agg(Points=("Correct", "sum"), Matches=("Correct", "count"))
+    .reset_index()
+    .sort_values("Points", ascending=False)
+    .reset_index(drop=True)
+)
+
+# Dense rank with clean symbols
+def compute_ranks(points_list):
+    from collections import Counter
+    count = Counter(points_list)
+    sorted_uniq = sorted(set(points_list), reverse=True)
+    pts_to_dense = {pts: i + 1 for i, pts in enumerate(sorted_uniq)}
+    podium = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+    result = []
+    for pts in points_list:
+        dr = pts_to_dense[pts]
+        # Top 3 get medals, everyone else gets a plain dense rank number.
+        # Ties share the same number automatically; no '=4' / '=5' symbols.
+        result.append(podium.get(dr, str(dr)))
+    return result
+
+leaderboard.insert(0, "Rank", compute_ranks(leaderboard["Points"].tolist()))
+leaderboard["Accuracy"] = (leaderboard["Points"] / leaderboard["Matches"] * 100).round(1).astype(str) + "%"
+
+st.markdown('<div class="section-title">🏆 Leaderboard</div>', unsafe_allow_html=True)
+
+_PALETTE = [
+    "#ff6b6b","#ffd43b","#69db7c","#4dabf7","#ff922b",
+    "#cc5de8","#20c997","#f06595","#74c0fc","#a9e34b",
+    "#ff8787","#63e6be","#ffa94d","#b2f2bb","#da77f2",
+    "#ff6eb4","#94d82d","#66d9e8","#ffc078","#a5d8ff",
+]
+_sorted_p = sorted(leaderboard["Player"].unique())
+_cmap     = {p: _PALETTE[i % len(_PALETTE)] for i, p in enumerate(_sorted_p)}
+
+_max_pts = leaderboard["Points"].max() if len(leaderboard) > 0 else 1
+# Bar width = accuracy % (points/matches) so tied players show correctly
+# e.g. 3/6 = 50%, 3/4 = 75% – visually meaningful
+
+def _initials(name):
+    parts = str(name).strip().split()
+    return (parts[0][0] + (parts[-1][0] if len(parts) > 1 else parts[0][-1])).upper()
+
+def _num_cls(rs):
+    return "p1" if rs in ("🥇","🏅") else "p2" if rs=="🥈" else "p3" if rs=="🥉" else "pn"
+
+def _row_cls(rs):
+    return "rank-1" if rs in ("🥇","🏅") else "rank-2" if rs=="🥈" else "rank-3" if rs=="🥉" else ""
+
+def _make_lb_row(_pl, _pts, _mat, _rk, _acc, _col):
+    _pct = round((_pts / _mat) * 100) if _mat > 0 else 0
+    _av  = _initials(_pl)
+    _nc  = _num_cls(_rk)
+    _rc  = _row_cls(_rk)
+    return (f'<div class="lb-row {_rc}" style="--pc:{_col}">'
+            f'<div class="lb-num {_nc}">{_rk}</div>'
+            f'<div class="lb-avatar" style="background:{_col}">{_av}</div>'
+            f'<div class="lb-name">{_pl}</div>'
+            f'<div class="lb-bar-wrap"><div class="lb-bar" style="background:{_col};width:{_pct}%"></div></div>'
+            f'<div class="lb-score">{_pts}<sup>/{_mat}</sup></div>'
+            f'<div class="lb-acc">{_acc}</div>'
+            f'</div>')
+
+_lb_records = [(str(r["Player"]), int(r["Points"]), int(r["Matches"]),
+                str(r["Rank"]), str(r["Accuracy"]), _cmap.get(str(r["Player"]), "#4dabf7"))
+               for _, r in leaderboard.iterrows()]
+_half      = (len(_lb_records) + 1) // 2
+_left_html  = "".join(_make_lb_row(*rec) for rec in _lb_records[:_half])
+_right_html = "".join(_make_lb_row(*rec) for rec in _lb_records[_half:])
+
+st.markdown(
+    f'<div class="lb-container">'
+    f'<div class="lb-grid">'
+    f'<div class="lb-col">{_left_html}</div>'
+    f'<div class="lb-col">{_right_html}</div>'
+    f'</div></div>',
+    unsafe_allow_html=True
+)
+
+# =========================
+# 📅 MATCH SCHEDULE
+# =========================
+st.markdown("""
+<div class="pitch-divider">
+    <span class="pitch-ball">⚽</span>
+    <span class="pitch-label">MATCH SCHEDULE</span>
+    <span class="pitch-ball">⚽</span>
+</div>
+""", unsafe_allow_html=True)
+
 now = datetime.now(NZ_TZ)
 today = now.date()
 selected_date = st.date_input("Select Date", value=today)
@@ -569,6 +1304,8 @@ else:
         k2 = _team_key(team2)
 
         live = (_live_scores.get((k1, k2)) or _live_scores.get((k2, k1))) if '_live_scores' in globals() else None
+        api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
+        has_result = result is not None and str(result).strip() != ""
         live_state = str((live or {}).get("status", "")).casefold()
         is_live_feed = bool(live and any(k in live_state for k in (
             "live", "in progress", "inprogress", "1st half", "2nd half",
@@ -577,36 +1314,33 @@ else:
         is_finished_feed = bool(live and any(k in live_state for k in (
             "finished", "completed", "final", "post", "postperiod"
         )))
-        api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
-        has_result = result is not None and str(result).strip() != ""
 
-        # If a live feed says the match is live, never let stale Result values override it.
+        # Never let live feed matches be overwritten by stale/early final results.
         if is_live_feed:
             has_result = False
         elif not has_result and api_result:
             result = str(api_result).strip()
             has_result = True
 
-        # If a live feed has clearly finished, map its score to the final result when needed.
-        if is_finished_feed and not has_result:
-            hs = live.get("home", None)
-            as_ = live.get("away", None)
-            if hs is not None and as_ is not None:
-                if hs == as_:
-                    result = "Draw"
-                elif hs > as_:
-                    result = team1
-                else:
-                    result = team2
-                has_result = True
+        # If a live feed has clearly finished and it's a draw, show Draw.
+        finalized_live_draw = bool(
+            is_finished_feed
+            and live
+            and live.get("home") is not None
+            and live.get("away") is not None
+            and live.get("home") == live.get("away")
+        )
+        if finalized_live_draw and not has_result:
+            result = "Draw"
+            has_result = True
 
         f1 = flag_html(get_flag_url(team1))
         f2 = flag_html(get_flag_url(team2))
 
-        # ── Status: live feed wins first; finished second; then scheduled/pending ──
+        # Status: live feed first, then finished, then scheduled/pending.
         if is_live_feed:
             status = "LIVE"
-        elif has_result or is_finished_feed:
+        elif has_result or finalized_live_draw:
             status = "Finished"
         elif dt:
             diff = (now - dt).total_seconds()
@@ -631,7 +1365,7 @@ else:
             else:
                 score_html = f'<span class="result-win">{result}</span>'
         elif status == "LIVE":
-            if live and live.get("home") is not None and live.get("away") is not None:
+            if live:
                 hs = live.get("home", 0)
                 as_ = live.get("away", 0)
                 score_html = f'<span class="live-pulse">🔴 {hs} - {as_}</span>'
@@ -674,8 +1408,10 @@ else:
             </div>
         </div>
         """, unsafe_allow_html=True)
+
 # =========================
 # 👥 PLAYER SUMMARY
+
 # =========================
 st.markdown('<div class="section-title">👥 Player Summary</div>', unsafe_allow_html=True)
 st.dataframe(leaderboard, use_container_width=True, hide_index=True)
