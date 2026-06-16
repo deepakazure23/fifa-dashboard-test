@@ -527,6 +527,18 @@ def _norm_team(name):
 def _team_key(name):
     return _norm_team(name).casefold()
 
+def _is_live_status(status_text):
+    return any(k in str(status_text).casefold() for k in (
+        "live", "in progress", "inprogress", "1st half", "2nd half",
+        "half time", "halftime", "ht", "extra time", "penalty"
+    ))
+
+
+def _is_finished_status(status_text):
+    return any(k in str(status_text).casefold() for k in (
+        "final", "finished", "completed", "full time", "ft", "aet", "post", "ended"
+    ))
+
 
 def _is_draw_result(value):
     if value is None:
@@ -851,8 +863,8 @@ def fetch_live_scores():
                 if as_ is None:
                     as_ = _score(_ev, "AwayTeamScore", "AwayScore")
 
-                # Accept any clearly live event with available scores.
-                if hs is not None and as_ is not None and (_is_liveish(_status) or not _is_finishedish(_status)):
+                # Only store truly in-progress events; avoid stale post-match scores.
+                if hs is not None and as_ is not None and _is_live_status(_status):
                     _store_pair(_h, _a, hs, as_, _status or "live")
 
             if _out:
@@ -945,7 +957,7 @@ def fetch_live_scores():
     return _out
 
 
-def sync_results_to_excel(file_path, api_results, sheet_name="Sheet1"):
+def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="Sheet1"):
     """
     Write API results back into the Excel Result column.
     Only fills blank Result cells so manual values stay intact.
@@ -983,6 +995,10 @@ def sync_results_to_excel(file_path, api_results, sheet_name="Sheet1"):
         k1 = _team_key(team1)
         k2 = _team_key(team2)
 
+        live = (live_scores or {}).get((k1, k2)) or (live_scores or {}).get((k2, k1))
+        if live and _is_live_status(live.get("status", "")):
+            continue
+
         winner = api_results.get((k1, k2)) or api_results.get((k2, k1))
         if winner:
             ws.cell(r, c_result).value = winner
@@ -1003,7 +1019,7 @@ except:
 _api_results = fetch_api_results()
 _live_scores = fetch_live_scores()
 try:
-    _ = sync_results_to_excel(FILE_PATH, _api_results)
+    _ = sync_results_to_excel(FILE_PATH, _api_results, _live_scores)
 except Exception as e:
     st.warning(f"Could not sync API results back to Excel: {e}")
 
@@ -1028,6 +1044,9 @@ try:
             continue
         k1 = _team_key(t1)
         k2 = _team_key(t2)
+        live = _live_scores.get((k1, k2)) or _live_scores.get((k2, k1))
+        if live and _is_live_status(live.get("status", "")):
+            continue
         winner = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
         if winner:
             _df_copy.at[idx, "Result"] = winner
@@ -1299,22 +1318,22 @@ else:
         api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
         has_result = result is not None and str(result).strip() != ""
         live_state = str((live or {}).get("status", "")).casefold()
+        live_active = bool(live and _is_live_status(live_state))
+        live_finished = bool(live and _is_finished_status(live_state))
         finalized_live_draw = bool(
-            live
+            live_finished
             and live.get("home") is not None
             and live.get("away") is not None
             and live.get("home") == live.get("away")
-            and any(k in live_state for k in ("postperiod", "post", "finished", "completed", "final"))
         )
 
-        # If a final result is already known, use it immediately.
-        # Do not let a live provider response override a completed match.
-        if not has_result and api_result:
+        # Never let a live fixture be replaced by a final result.
+        if (not live_active) and (not has_result) and api_result:
             result = str(api_result).strip()
             has_result = True
 
-        # Some providers expose a 0-0 / 1-1 final score before the Result column is filled.
-        # Treat those as finished draws so they do not remain stuck on WAITING FOR RESULT.
+        # Some providers expose a final 0-0 / 1-1 score before the Result column is filled.
+        # Treat those as finished draws only when the feed says the match is finished.
         if finalized_live_draw and not has_result:
             result = "Draw"
             has_result = True
@@ -1322,11 +1341,11 @@ else:
         f1 = flag_html(get_flag_url(team1))
         f2 = flag_html(get_flag_url(team2))
 
-        # ── Status: finished overrides live; live only when the live feed says so ──
-        if has_result or finalized_live_draw:
-            status = "Finished"
-        elif live:
+        # ── Status: live overrides everything else ──
+        if live_active:
             status = "LIVE"
+        elif has_result or finalized_live_draw:
+            status = "Finished"
         elif dt:
             diff = (now - dt).total_seconds()
             if diff < 0:
@@ -1350,7 +1369,7 @@ else:
             else:
                 score_html = f'<span class="result-win">{result}</span>'
         elif status == "LIVE":
-            if live:
+            if live_active:
                 hs = live.get("home", 0)
                 as_ = live.get("away", 0)
                 score_html = f'<span class="live-pulse">🔴 {hs} - {as_}</span>'
