@@ -729,101 +729,110 @@ def fetch_api_results():
             if _resp.status_code != 200:
                 continue
             _consume(_resp.json())
-            if _out:
-                break
+            break  # got a valid response from FIFA, no need to try the second URL
         except:
             continue
 
-    if not _out:
-        _days = [(_now.date() + timedelta(days=d)).strftime("%Y%m%d") for d in (-1, 0, 1)]
-        _espn_slugs = [
-            "fifa.worldcup",
-            "fifa.world",
-            "global.2026-fifa-world-cup",
-            "fifa.worldcup.2026",
-        ]
-        for _day in _days:
-            for _slug in _espn_slugs:
-                try:
-                    _url  = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_day}"
-                    _resp = req.get(_url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
-                    if _resp.status_code != 200:
-                        continue
-                    _data = _resp.json()
-                    for _ev in _data.get("events", []):
-                        _comp  = (_ev.get("competitions") or [{}])[0]
-                        _status = _comp.get("status", {}).get("type", {})
-                        _done  = bool(_status.get("completed", False) or _status.get("state") == "post")
-                        if not _done:
-                            continue
-
-                        _teams = _comp.get("competitors", [])
-                        if len(_teams) < 2:
-                            continue
-
-                        _names = [t.get("team", {}).get("displayName", "") for t in _teams]
-                        _sc = []
-                        for _t in _teams:
-                            try:
-                                _sc.append(int(_t.get("score", 0) or 0))
-                            except:
-                                _sc.append(0)
-
-                        _n0 = _norm_team(_names[0])
-                        _n1 = _norm_team(_names[1])
-                        _w  = _n0 if _sc[0] > _sc[1] else _n1 if _sc[1] > _sc[0] else "Draw"
-                        _out[(_team_key(_n0), _team_key(_n1))] = _w
-                        _out[(_team_key(_n1), _team_key(_n0))] = _w
-                        _scores_out[(_team_key(_n0), _team_key(_n1))] = (_sc[0], _sc[1])
-                        _scores_out[(_team_key(_n1), _team_key(_n0))] = (_sc[1], _sc[0])
-                    if _out:
-                        break
-                except:
+    # Always run ESPN regardless — FIFA may have missed some matches.
+    _days = [(_now.date() + timedelta(days=d)).strftime("%Y%m%d") for d in (-1, 0, 1)]
+    _espn_slugs = [
+        "fifa.worldcup",
+        "fifa.world",
+        "global.2026-fifa-world-cup",
+        "fifa.worldcup.2026",
+    ]
+    for _day in _days:
+        _espn_found = False
+        for _slug in _espn_slugs:
+            try:
+                _url  = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_day}"
+                _resp = req.get(_url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+                if _resp.status_code != 200:
                     continue
-            if _out:
-                break
+                _data = _resp.json()
+                _ev_list = _data.get("events", [])
+                if not _ev_list:
+                    continue
+                _espn_found = True
+                for _ev in _ev_list:
+                    _comp  = (_ev.get("competitions") or [{}])[0]
+                    _status = _comp.get("status", {}).get("type", {})
+                    _done  = bool(_status.get("completed", False) or _status.get("state") == "post")
+                    if not _done:
+                        continue
 
-    if not _out:
-        try:
-            _url  = f"https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d={_diso}&l=FIFA+World+Cup"
-            _resp = req.get(_url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
-            if _resp.status_code == 200:
-                _fin_stati = {"match finished","ft","aet","pen","ap"}
-                for _ev in (_resp.json().get("events") or []):
-                    _st = (_ev.get("strStatus") or "").lower().strip()
-                    _hs_raw = _ev.get("intHomeScore")
-                    _as_raw = _ev.get("intAwayScore")
-                    if _st not in _fin_stati or _hs_raw is None: continue
-                    _h = _ESPN_MAP.get((_ev.get("strHomeTeam") or "").lower(), _ev.get("strHomeTeam", ""))
-                    _a = _ESPN_MAP.get((_ev.get("strAwayTeam") or "").lower(), _ev.get("strAwayTeam", ""))
+                    _teams = _comp.get("competitors", [])
+                    if len(_teams) < 2:
+                        continue
+
+                    _names = [t.get("team", {}).get("displayName", "") for t in _teams]
+                    _sc = []
+                    for _t in _teams:
+                        try:
+                            _sc.append(int(_t.get("score", 0) or 0))
+                        except:
+                            _sc.append(0)
+
+                    _n0 = _norm_team(_names[0])
+                    _n1 = _norm_team(_names[1])
+                    _k0, _k1 = _team_key(_n0), _team_key(_n1)
+                    # Only fill gaps — don't overwrite FIFA data
+                    if (_k0, _k1) not in _out:
+                        _w  = _n0 if _sc[0] > _sc[1] else _n1 if _sc[1] > _sc[0] else "Draw"
+                        _out[(_k0, _k1)] = _w
+                        _out[(_k1, _k0)] = _w
+                        _scores_out[(_k0, _k1)] = (_sc[0], _sc[1])
+                        _scores_out[(_k1, _k0)] = (_sc[1], _sc[0])
+                if _espn_found:
+                    break  # found events for this day on this slug
+            except:
+                continue
+
+    # TheSportsDB — fills any remaining gaps
+    try:
+        _url  = f"https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d={_diso}&l=FIFA+World+Cup"
+        _resp = req.get(_url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+        if _resp.status_code == 200:
+            _fin_stati = {"match finished","ft","aet","pen","ap"}
+            for _ev in (_resp.json().get("events") or []):
+                _st = (_ev.get("strStatus") or "").lower().strip()
+                _hs_raw = _ev.get("intHomeScore")
+                _as_raw = _ev.get("intAwayScore")
+                if _st not in _fin_stati or _hs_raw is None: continue
+                _h = _ESPN_MAP.get((_ev.get("strHomeTeam") or "").lower(), _ev.get("strHomeTeam", ""))
+                _a = _ESPN_MAP.get((_ev.get("strAwayTeam") or "").lower(), _ev.get("strAwayTeam", ""))
+                _k0, _k1 = _h.lower(), _a.lower()
+                if (_k0, _k1) not in _out:
                     try: _hs, _as = int(_hs_raw), int(_as_raw)
                     except: _hs, _as = 0, 0
                     _w = _h if _hs>_as else _a if _as>_hs else "Draw"
-                    _out[(_h.lower(), _a.lower())] = _w
-                    _out[(_a.lower(), _h.lower())] = _w
-                    _scores_out[(_h.lower(), _a.lower())] = (_hs, _as)
-                    _scores_out[(_a.lower(), _h.lower())] = (_as, _hs)
-        except:
-            pass
+                    _out[(_k0, _k1)] = _w
+                    _out[(_k1, _k0)] = _w
+                    _scores_out[(_k0, _k1)] = (_hs, _as)
+                    _scores_out[(_k1, _k0)] = (_as, _hs)
+    except:
+        pass
 
-    if not _out:
-        try:
-            _url  = f"https://www.scoreaxis.com/api/live-events?sport=1&date={_diso}&timeZone=0"
-            _resp = req.get(_url, timeout=6, headers={"User-Agent":"Mozilla/5.0"})
-            if _resp.status_code == 200:
-                for _ev in (_resp.json().get("data",{}).get("events") or []):
-                    if not _ev.get("statusFinished"): continue
-                    _h = _ESPN_MAP.get((_ev.get("homeTeamName") or "").lower(), _ev.get("homeTeamName",""))
-                    _a = _ESPN_MAP.get((_ev.get("awayTeamName") or "").lower(), _ev.get("awayTeamName",""))
+    # Scoreaxis — last resort for any still-missing matches
+    try:
+        _url  = f"https://www.scoreaxis.com/api/live-events?sport=1&date={_diso}&timeZone=0"
+        _resp = req.get(_url, timeout=6, headers={"User-Agent":"Mozilla/5.0"})
+        if _resp.status_code == 200:
+            for _ev in (_resp.json().get("data",{}).get("events") or []):
+                if not _ev.get("statusFinished"): continue
+                _h = _ESPN_MAP.get((_ev.get("homeTeamName") or "").lower(), _ev.get("homeTeamName",""))
+                _a = _ESPN_MAP.get((_ev.get("awayTeamName") or "").lower(), _ev.get("awayTeamName",""))
+                _k0, _k1 = _h.lower(), _a.lower()
+                if (_k0, _k1) not in _out:
                     try: _hs = int(_ev.get("homeScore",0)); _as = int(_ev.get("awayScore",0))
                     except: _hs, _as = 0, 0
                     _w = _h if _hs>_as else _a if _as>_hs else "Draw"
-                    _out[(_h.lower(), _a.lower())] = _w
-                    _out[(_a.lower(), _h.lower())] = _w
-                    _scores_out[(_h.lower(), _a.lower())] = (_hs, _as)
-                    _scores_out[(_a.lower(), _h.lower())] = (_as, _hs)
-        except:
-            pass
+                    _out[(_k0, _k1)] = _w
+                    _out[(_k1, _k0)] = _w
+                    _scores_out[(_k0, _k1)] = (_hs, _as)
+                    _scores_out[(_k1, _k0)] = (_as, _hs)
+    except:
+        pass
 
     return _out, _scores_out
 
@@ -1170,10 +1179,10 @@ except Exception:
 with st.expander("🔍 DEBUG — API Results", expanded=True):
     st.write(f"**Current NZT:** {datetime.now(NZ_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
     st.write(f"**_api_results keys ({len(_api_results)}):**")
-    for k, v in list(_api_results.items())[:30]:
+    for k, v in list(_api_results.items()):
         st.write(f"  `{k}` → `{v}`")
     st.write(f"**_api_scores keys ({len(_api_scores)}):**")
-    for k, v in list(_api_scores.items())[:30]:
+    for k, v in list(_api_scores.items()):
         st.write(f"  `{k}` → `{v}`")
     st.write(f"**_live_scores keys ({len(_live_scores)}):**")
     for k, v in _live_scores.items():
@@ -1184,6 +1193,22 @@ with st.expander("🔍 DEBUG — API Results", expanded=True):
     st.write(f"**Today's df rows ({len(_dbg_rows)}):**")
     for _, _r in _dbg_rows.iterrows():
         st.write(f"  {_r.get('Team 1')} vs {_r.get('Team 2')} → Result: `{_r.get('Result')}` | DateTime: `{_r.get('DateTime')}`")
+    # Raw ESPN probe for today
+    st.write("**Raw ESPN probe (fifa.worldcup today):**")
+    try:
+        _dbg_day = _now_dbg.strftime("%Y%m%d")
+        _dbg_r = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.worldcup/scoreboard?dates={_dbg_day}", timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+        _dbg_evs = _dbg_r.json().get("events", [])
+        st.write(f"  Status: {_dbg_r.status_code}, events: {len(_dbg_evs)}")
+        for _e in _dbg_evs:
+            _c = (_e.get("competitions") or [{}])[0]
+            _t = _c.get("competitors", [])
+            _names = [x.get("team",{}).get("displayName","?") for x in _t]
+            _sc = [x.get("score","?") for x in _t]
+            _st = _c.get("status",{}).get("type",{})
+            st.write(f"  {' vs '.join(_names)} | score: {' - '.join(str(s) for s in _sc)} | completed: {_st.get('completed')} | state: {_st.get('state')}")
+    except Exception as _e:
+        st.write(f"  ESPN probe error: {_e}")
 
 # ── Smart refresh: keep polling while any today's match is live or recently finished ──────────
 _now = datetime.now(NZ_TZ)
