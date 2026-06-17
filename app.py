@@ -1448,21 +1448,22 @@ else:
         has_result = result is not None and str(result).strip() != ""
         live_state = str((live or {}).get("status", "")).casefold()
 
-        # Detect live: match keyword-based phrases OR ESPN's short 'in'/'active' codes.
-        # _live_scores only ever stores in-progress matches, so if live is set it IS live.
+        # ── Classify feed status ──────────────────────────────────────────────
+        # is_finished_feed must be evaluated first — used inside is_live_feed.
+        is_finished_feed = bool(live and any(k in live_state for k in (
+            "finished", "completed", "final", "post", "postperiod", "ft", "aet"
+        )))
+
+        # Only treat as live if the feed is NOT already finished.
         is_live_feed = bool(
-            live and (
+            live and not is_finished_feed and (
                 any(k in live_state for k in (
                     "live", "in progress", "inprogress", "1st half", "2nd half",
                     "half time", "halftime", "ht", "extra time", "penalty"
                 ))
                 or live_state in ("in", "active", "in_progress", "inprogress")
-                or live is not None  # fallback: trust _live_scores entirely
             )
         )
-        is_finished_feed = bool(live and any(k in live_state for k in (
-            "finished", "completed", "final", "post", "postperiod"
-        )))
 
         # Time-based live-window guard (0 – 130 min after kick-off).
         # Prevents a stale 0-0 "Draw" from the API being shown as final
