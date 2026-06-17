@@ -1082,17 +1082,28 @@ except:
 
 _api_results = fetch_api_results()
 _live_scores = fetch_live_scores()
-try:
-    _ = sync_results_to_excel(FILE_PATH, _api_results, live_scores=_live_scores)
-except Exception as e:
-    st.warning(f"Could not sync API results back to Excel: {e}")
 
-try:
-    _mtime = os.path.getmtime(FILE_PATH)
-except:
-    _mtime = 0
+df = load_data(0)
 
-df = load_data(_mtime)
+# Overlay API results directly in memory
+df = df.copy()
+for idx, row in df.iterrows():
+    cur = row.get("Result")
+    if pd.notna(cur) and str(cur).strip():
+        continue
+
+    t1 = row.get("Team 1")
+    t2 = row.get("Team 2")
+    if pd.isna(t1) or pd.isna(t2):
+        continue
+
+    k1 = _team_key(t1)
+    k2 = _team_key(t2)
+    winner = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
+    if winner:
+        df.at[idx, "Result"] = winner
+
+
 
 # Create an in-memory copy of the spreadsheet and fill missing Result cells
 # from API results so the UI updates immediately without requiring Excel writes.
