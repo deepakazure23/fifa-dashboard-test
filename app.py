@@ -658,6 +658,16 @@ def _resolve_row_result(row, api_results=None, live_scores=None, now=None):
         if winner:
             return str(winner).strip()
 
+        score_map = globals().get("_api_scores", {})
+        score_pair = score_map.get((k1, k2)) or score_map.get((k2, k1))
+        if score_pair and len(score_pair) == 2:
+            home_score, away_score = score_pair
+            if home_score > away_score:
+                return str(team1).strip()
+            if away_score > home_score:
+                return str(team2).strip()
+            return "Draw"
+
     return None
 
 
@@ -1151,10 +1161,11 @@ try:
     download_workbook()
     _sharepoint_synced = True
     _file_mtime = os.path.getmtime(FILE_PATH)
-    _last_updated = datetime.fromtimestamp(_file_mtime, tz=NZ_TZ).strftime("%Y-%m-%d %H:%M:%S NZT")
 except Exception:
     _sharepoint_synced = False
-    _last_updated = "Local file (SharePoint sync failed)"
+
+_file_mtime = os.path.getmtime(FILE_PATH) if os.path.exists(FILE_PATH) else 0
+_last_updated = datetime.fromtimestamp(_file_mtime, tz=NZ_TZ).strftime("%Y-%m-%d %H:%M:%S NZT") if _file_mtime else "Unknown"
 
 try:
     _mtime = os.path.getmtime(FILE_PATH)
@@ -1180,6 +1191,9 @@ except:
     _mtime = 0
 
 df = load_data(_mtime)
+
+# Current time used for all result resolution below.
+_now = datetime.now(NZ_TZ)
 
 # Create an in-memory copy of the spreadsheet and fill missing Result cells
 # from API results so the UI updates immediately without requiring Excel writes.
@@ -1465,6 +1479,7 @@ else:
         team2  = str(row["Team 2"]) if pd.notna(row["Team 2"]) else "TBD"
         dt     = row["DateTime"]
         result = str(row["Result"]).strip() if pd.notna(row["Result"]) else None
+        resolved_result = str(row["Resolved Result"]).strip() if "Resolved Result" in row and pd.notna(row["Resolved Result"]) else None
         k1 = _team_key(team1)
         k2 = _team_key(team2)
 
@@ -1504,9 +1519,9 @@ else:
             # 0-0 placeholder written to Excel by a previous run.  Treat as pending.
             has_result = False
             result = None
-        elif not has_result and api_result and not _in_live_window:
-            # Match is clearly over (> 130 min since kick-off) – trust the API result.
-            result = str(api_result).strip()
+        elif not has_result and (resolved_result or api_result) and not _in_live_window:
+            # Match is clearly over – trust the resolved/API result.
+            result = resolved_result or str(api_result).strip()
             has_result = True
 
         # If a live feed has clearly finished and it's a draw, show Draw.
@@ -1545,9 +1560,8 @@ else:
                 score_html = '<span class="result-draw">⚖ DRAW</span>'
             elif result and _team_key(result) == _team_key(team1):
                 t1_cls, t2_cls = "winner", "loser"
-                # Try to add score if available
                 _score_key = (_team_key(team1), _team_key(team2))
-                _score_data = _api_scores.get(_score_key) if _api_scores else None
+                _score_data = _api_scores.get(_score_key) if isinstance(_api_scores, dict) else None
                 if _score_data:
                     _hs, _as = _score_data
                     score_html = f'<span class="result-win">✓ {team1}<br>WINS {_hs}-{_as}</span>'
@@ -1555,9 +1569,8 @@ else:
                     score_html = f'<span class="result-win">✓ {team1}<br>WINS</span>'
             elif result and _team_key(result) == _team_key(team2):
                 t1_cls, t2_cls = "loser", "winner"
-                # Try to add score if available
                 _score_key = (_team_key(team2), _team_key(team1))
-                _score_data = _api_scores.get(_score_key) if _api_scores else None
+                _score_data = _api_scores.get(_score_key) if isinstance(_api_scores, dict) else None
                 if _score_data:
                     _hs, _as = _score_data
                     score_html = f'<span class="result-win">✓ {team2}<br>WINS {_hs}-{_as}</span>'
