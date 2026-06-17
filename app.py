@@ -12,51 +12,6 @@ import re
 
 from pathlib import Path
 
-import tempfile
-import base64
-import requests as req
-
-SHAREPOINT_FILE = "https://ahunga.sharepoint.com/:x:/r/sites/CloudSharedPlatforms/Shared%20Documents/General/Fun%20Stuff/FIFA%20World%20Cup%202026/World%20Cup%202026%20Comp.xlsx?d=wed124785bb454f65ba30e5d77600c610&csf=1&web=1&e=4Y1OVT"
-
-FILE_PATH = os.path.join(
-    tempfile.gettempdir(),
-    "World_Cup_2026_Comp.xlsx"
-)
-
-def download_workbook():
-
-    share_id = (
-        "u!" +
-        base64.b64encode(
-            SHAREPOINT_FILE.encode()
-        ).decode()
-        .rstrip("=")
-        .replace("/", "_")
-        .replace("+", "-")
-    )
-
-    token = os.getenv("GRAPH_ACCESS_TOKEN")
-
-    url = (
-        f"https://graph.microsoft.com/v1.0/"
-        f"shares/{share_id}/driveItem/content"
-    )
-
-    r = req.get(
-        url,
-        headers={
-            "Authorization": f"Bearer {token}"
-        },
-        timeout=30
-    )
-
-    r.raise_for_status()
-
-    with open(FILE_PATH, "wb") as f:
-        f.write(r.content)
-
-
-
 def _load_img(path, mime):
     try:
         with open(path, "rb") as f:
@@ -1082,28 +1037,17 @@ except:
 
 _api_results = fetch_api_results()
 _live_scores = fetch_live_scores()
+try:
+    _ = sync_results_to_excel(FILE_PATH, _api_results, live_scores=_live_scores)
+except Exception as e:
+    st.warning(f"Could not sync API results back to Excel: {e}")
 
-df = load_data(0)
+try:
+    _mtime = os.path.getmtime(FILE_PATH)
+except:
+    _mtime = 0
 
-# Overlay API results directly in memory
-df = df.copy()
-for idx, row in df.iterrows():
-    cur = row.get("Result")
-    if pd.notna(cur) and str(cur).strip():
-        continue
-
-    t1 = row.get("Team 1")
-    t2 = row.get("Team 2")
-    if pd.isna(t1) or pd.isna(t2):
-        continue
-
-    k1 = _team_key(t1)
-    k2 = _team_key(t2)
-    winner = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
-    if winner:
-        df.at[idx, "Result"] = winner
-
-
+df = load_data(_mtime)
 
 # Create an in-memory copy of the spreadsheet and fill missing Result cells
 # from API results so the UI updates immediately without requiring Excel writes.
