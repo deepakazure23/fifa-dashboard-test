@@ -1166,6 +1166,25 @@ try:
 except Exception:
     pass
 
+# ── DEBUG: show API state (remove once issue is resolved) ─────────────────
+with st.expander("🔍 DEBUG — API Results", expanded=True):
+    st.write(f"**Current NZT:** {datetime.now(NZ_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
+    st.write(f"**_api_results keys ({len(_api_results)}):**")
+    for k, v in list(_api_results.items())[:30]:
+        st.write(f"  `{k}` → `{v}`")
+    st.write(f"**_api_scores keys ({len(_api_scores)}):**")
+    for k, v in list(_api_scores.items())[:30]:
+        st.write(f"  `{k}` → `{v}`")
+    st.write(f"**_live_scores keys ({len(_live_scores)}):**")
+    for k, v in _live_scores.items():
+        st.write(f"  `{k}` → `{v}`")
+    # Show today's df rows
+    _now_dbg = datetime.now(NZ_TZ)
+    _dbg_rows = df[df["Date (NZDT)"].dt.date == _now_dbg.date()]
+    st.write(f"**Today's df rows ({len(_dbg_rows)}):**")
+    for _, _r in _dbg_rows.iterrows():
+        st.write(f"  {_r.get('Team 1')} vs {_r.get('Team 2')} → Result: `{_r.get('Result')}` | DateTime: `{_r.get('DateTime')}`")
+
 # ── Smart refresh: keep polling while any today's match is live or recently finished ──────────
 _now = datetime.now(NZ_TZ)
 _today_matches = df[df["Date (NZDT)"].dt.date == _now.date()]
