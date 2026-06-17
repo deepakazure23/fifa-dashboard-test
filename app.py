@@ -12,6 +12,51 @@ import re
 
 from pathlib import Path
 
+import tempfile
+import base64
+import requests as req
+
+SHAREPOINT_FILE = "https://ahunga.sharepoint.com/:x:/r/sites/CloudSharedPlatforms/Shared%20Documents/General/Fun%20Stuff/FIFA%20World%20Cup%202026/World%20Cup%202026%20Comp.xlsx?d=wed124785bb454f65ba30e5d77600c610&csf=1&web=1&e=4Y1OVT"
+
+FILE_PATH = os.path.join(
+    tempfile.gettempdir(),
+    "World_Cup_2026_Comp.xlsx"
+)
+
+def download_workbook():
+
+    share_id = (
+        "u!" +
+        base64.b64encode(
+            SHAREPOINT_FILE.encode()
+        ).decode()
+        .rstrip("=")
+        .replace("/", "_")
+        .replace("+", "-")
+    )
+
+    token = os.getenv("GRAPH_ACCESS_TOKEN")
+
+    url = (
+        f"https://graph.microsoft.com/v1.0/"
+        f"shares/{share_id}/driveItem/content"
+    )
+
+    r = req.get(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}"
+        },
+        timeout=30
+    )
+
+    r.raise_for_status()
+
+    with open(FILE_PATH, "wb") as f:
+        f.write(r.content)
+
+
+
 def _load_img(path, mime):
     try:
         with open(path, "rb") as f:
