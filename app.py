@@ -1166,31 +1166,47 @@ try:
 except Exception:
     pass
 
-# ── Smart refresh: only reload while finished matches are still awaiting an API result ───────
+# ── Smart refresh: keep polling while any today's match is live or recently finished ──────────
 _now = datetime.now(NZ_TZ)
 _today_matches = df[df["Date (NZDT)"].dt.date == _now.date()]
 _has_pending = False
+_pending_minutes = []
+
 for _, _tm in _today_matches.iterrows():
     _r_val = str(_tm["Result"]).strip() if pd.notna(_tm["Result"]) else None
     _dt = _tm.get("DateTime")
-    # Only trigger polling for matches that should already have finished
-    if not _r_val and _dt and _dt <= _now:
+    if _dt is None:
+        continue
+    _secs = (_now - _dt).total_seconds()
+    _mins = _secs / 60.0
+
+    # A match is "active" if it kicked off and hasn't been clearly finished
+    # for more than 30 minutes (covers 90-min + 30-min buffer = 120 min).
+    # We keep refreshing during this whole window regardless of whether the
+    # API already has a result, so cache expiry is caught quickly.
+    _in_window = 0 <= _secs <= (120 * 60)
+
+    if _dt <= _now and _in_window:
+        _has_pending = True
+        _pending_minutes.append(_mins)
+    elif not _r_val and _dt <= _now:
+        # Past the window but still no result — keep polling slowly
         _t1 = str(_tm["Team 1"]).strip() if pd.notna(_tm["Team 1"]) else ""
         _t2 = str(_tm["Team 2"]).strip() if pd.notna(_tm["Team 2"]) else ""
         if not (_api_results.get((_team_key(_t1), _team_key(_t2))) or _api_results.get((_team_key(_t2), _team_key(_t1)))):
             _has_pending = True
-            break
+            _pending_minutes.append(_mins)
 
 if _has_pending:
-    # Recheck soon after a match finishes, then back off to 30 minutes while pending.
-    _pending_minutes = []
-    for _, _tm in _today_matches.iterrows():
-        _r_val = str(_tm["Result"]).strip() if pd.notna(_tm["Result"]) else None
-        _dt = _tm.get("DateTime")
-        if not _r_val and _dt and _dt <= _now:
-            _pending_minutes.append((_now - _dt).total_seconds() / 60.0)
+    # During / just after a match: refresh every 45 s (matches fetch_api_results ttl).
+    # Waiting > 30 min with no result: back off to every 3 minutes.
+    if _pending_minutes and min(_pending_minutes) < 30:
+        _delay_ms = 45_000    # 45 seconds — aligned with API cache TTL
+    elif _pending_minutes and min(_pending_minutes) < 150:
+        _delay_ms = 90_000    # 90 seconds for recently-finished matches
+    else:
+        _delay_ms = 180_000   # 3 minutes — slow poll for stale pending
 
-    _delay_ms = 60000 if _pending_minutes and min(_pending_minutes) < 30 else 1800000
     components.html(
         f"<script>setTimeout(()=>window.parent.location.reload(true),{_delay_ms});</script>",
         height=0
@@ -1510,19 +1526,34 @@ else:
             )
             if result and _is_draw_result(result):
                 if _fin_score and _fin_score[0] is not None:
-                    score_html = f'<span class="result-draw">{_fin_score[0]} — {_fin_score[1]}<br><small style="font-size:11px;letter-spacing:1px;">DRAW</small></span>'
+                    score_html = (
+                        f'<span class="result-draw">'
+                        f'{_fin_score[0]} — {_fin_score[1]}'
+                        f'<br><small style="font-size:11px;letter-spacing:2px;opacity:0.8;">DRAW</small>'
+                        f'</span>'
+                    )
                 else:
                     score_html = '<span class="result-draw">⚖ DRAW</span>'
             elif result and _team_key(result) == _team_key(team1):
                 t1_cls, t2_cls = "winner", "loser"
                 if _fin_score and _fin_score[0] is not None:
-                    score_html = f'<span class="result-win score-line">{_fin_score[0]} — {_fin_score[1]}</span>'
+                    score_html = (
+                        f'<span class="result-win score-line">'
+                        f'{_fin_score[0]} — {_fin_score[1]}'
+                        f'<br><small style="font-size:10px;letter-spacing:1px;color:#ffd700;">✓ {team1} WINS</small>'
+                        f'</span>'
+                    )
                 else:
                     score_html = f'<span class="result-win">✓ {team1}<br>WINS</span>'
             elif result and _team_key(result) == _team_key(team2):
                 t1_cls, t2_cls = "loser", "winner"
                 if _fin_score and _fin_score[0] is not None:
-                    score_html = f'<span class="result-win score-line">{_fin_score[0]} — {_fin_score[1]}</span>'
+                    score_html = (
+                        f'<span class="result-win score-line">'
+                        f'{_fin_score[0]} — {_fin_score[1]}'
+                        f'<br><small style="font-size:10px;letter-spacing:1px;color:#ffd700;">✓ {team2} WINS</small>'
+                        f'</span>'
+                    )
                 else:
                     score_html = f'<span class="result-win">✓ {team2}<br>WINS</span>'
             else:
