@@ -1087,7 +1087,16 @@ def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="
     return updated
 
 
-# mtime cache key → re-reads Excel only when file is saved
+# Download from SharePoint and track sync status
+try:
+    download_workbook()
+    _sharepoint_synced = True
+    _file_mtime = os.path.getmtime(FILE_PATH)
+    _last_updated = datetime.fromtimestamp(_file_mtime, tz=NZ_TZ).strftime("%Y-%m-%d %H:%M:%S NZT")
+except Exception:
+    _sharepoint_synced = False
+    _last_updated = "Local file (SharePoint sync failed)"
+
 try:
     _mtime = os.path.getmtime(FILE_PATH)
 except:
@@ -1095,6 +1104,10 @@ except:
 
 _api_results, _api_scores = fetch_api_results()
 _live_scores = fetch_live_scores()
+
+# Initialize _api_scores as empty dict if not defined (safety fallback)
+if not _api_scores:
+    _api_scores = {}
 try:
     _ = sync_results_to_excel(FILE_PATH, _api_results, live_scores=_live_scores)
 except Exception as e:
@@ -1307,6 +1320,10 @@ leaderboard["Accuracy"] = (leaderboard["Points"] / leaderboard["Matches"] * 100)
 
 st.markdown('<div class="section-title">🏆 Leaderboard</div>', unsafe_allow_html=True)
 
+# Display file sync status and last update time
+_sync_status = "✅ SharePoint" if _sharepoint_synced else "⚠️ Local Cache"
+st.caption(f"Data source: {_sync_status} | Last updated: {_last_updated}")
+
 _PALETTE = [
     "#ff6b6b","#ffd43b","#69db7c","#4dabf7","#ff922b",
     "#cc5de8","#20c997","#f06595","#74c0fc","#a9e34b",
@@ -1467,7 +1484,7 @@ else:
                 t1_cls, t2_cls = "winner", "loser"
                 # Try to add score if available
                 _score_key = (_team_key(team1), _team_key(team2))
-                _score_data = _api_scores.get(_score_key) if '_api_scores' in globals() else None
+                _score_data = _api_scores.get(_score_key) if _api_scores else None
                 if _score_data:
                     _hs, _as = _score_data
                     score_html = f'<span class="result-win">✓ {team1}<br>WINS {_hs}-{_as}</span>'
@@ -1477,7 +1494,7 @@ else:
                 t1_cls, t2_cls = "loser", "winner"
                 # Try to add score if available
                 _score_key = (_team_key(team2), _team_key(team1))
-                _score_data = _api_scores.get(_score_key) if '_api_scores' in globals() else None
+                _score_data = _api_scores.get(_score_key) if _api_scores else None
                 if _score_data:
                     _hs, _as = _score_data
                     score_html = f'<span class="result-win">✓ {team2}<br>WINS {_hs}-{_as}</span>'
