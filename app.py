@@ -622,6 +622,55 @@ def _is_finishedish(status_text):
     ))
 
 
+def _resolve_row_result(row, api_results=None, live_scores=None, now=None):
+    """Return the best visible result for a fixture row.
+    Prefers the workbook Result, otherwise uses API result once the match is clearly not live.
+    """
+    if now is None:
+        now = datetime.now(NZ_TZ)
+
+    raw_result = row.get("Result")
+    if pd.notna(raw_result) and str(raw_result).strip() != "":
+        return str(raw_result).strip()
+
+    team1 = row.get("Team 1")
+    team2 = row.get("Team 2")
+    if pd.isna(team1) or pd.isna(team2):
+        return None
+
+    dt = row.get("DateTime")
+    if dt is None:
+        return None
+
+    k1 = _team_key(team1)
+    k2 = _team_key(team2)
+    live = (live_scores or {}).get((k1, k2)) or (live_scores or {}).get((k2, k1))
+    if live and _is_liveish(str(live.get("status", "")).casefold()):
+        return None
+
+    elapsed_seconds = (now - dt).total_seconds()
+    if elapsed_seconds < 0:
+        return None
+
+    # Once the fixture is clearly past kickoff, trust the API result if present.
+    if elapsed_seconds >= (30 * 60):
+        winner = (api_results or {}).get((k1, k2)) or (api_results or {}).get((k2, k1))
+        if winner:
+            return str(winner).strip()
+
+        score_map = globals().get("_api_scores", {})
+        score_pair = score_map.get((k1, k2)) or score_map.get((k2, k1))
+        if score_pair and len(score_pair) == 2:
+            home_score, away_score = score_pair
+            if home_score > away_score:
+                return str(team1).strip()
+            if away_score > home_score:
+                return str(team2).strip()
+            return "Draw"
+
+    return None
+
+
 @st.cache_data(ttl=10)
 def fetch_api_results():
     """Fetch only finished WC2026 results with scores from official / fallback providers.
@@ -945,9 +994,29 @@ def fetch_live_scores():
                     for _ev in _data.get("events", []):
                         _comp = (_ev.get("competitions") or [{}])[0]
                         _status = _comp.get("status", {}).get("type", {}).get("state", "").lower()
+                        _event_dt = None
+                        for _dt_key in ("date", "startDate", "startDateUTC", "startDateTime"):
+                            _raw_dt = _ev.get(_dt_key) or _comp.get(_dt_key)
+                            if not _raw_dt:
+                                continue
+                            try:
+                                _event_dt = pd.to_datetime(_raw_dt, utc=True)
+                                break
+                            except Exception:
+                                continue
 
                         if _status not in ("in", "in_progress", "live", "active"):
-                            continue
+                            # Some feeds lag on flipping to completed; if we already have scores and
+                            # the match is well past kick-off, trust the score payload.
+                            _allow_old_finished = False
+                            if _event_dt is not None:
+                                try:
+                                    _elapsed = (pd.Timestamp.now(tz="UTC") - _event_dt).total_seconds()
+                                    _allow_old_finished = _elapsed >= (150 * 60)
+                                except Exception:
+                                    _allow_old_finished = False
+                            if not _allow_old_finished:
+                                continue
 
                         _teams = _comp.get("competitors", [])
                         if len(_teams) < 2:
@@ -1092,10 +1161,11 @@ try:
     download_workbook()
     _sharepoint_synced = True
     _file_mtime = os.path.getmtime(FILE_PATH)
-    _last_updated = datetime.fromtimestamp(_file_mtime, tz=NZ_TZ).strftime("%Y-%m-%d %H:%M:%S NZT")
 except Exception:
     _sharepoint_synced = False
-    _last_updated = "Local file (SharePoint sync failed)"
+
+_file_mtime = os.path.getmtime(FILE_PATH) if os.path.exists(FILE_PATH) else 0
+_last_updated = datetime.fromtimestamp(_file_mtime, tz=NZ_TZ).strftime("%Y-%m-%d %H:%M:%S NZT") if _file_mtime else "Unknown"
 
 try:
     _mtime = os.path.getmtime(FILE_PATH)
@@ -1122,23 +1192,25 @@ except:
 
 df = load_data(_mtime)
 
+# Current time used for all result resolution below.
+_now = datetime.now(NZ_TZ)
+
 # Create an in-memory copy of the spreadsheet and fill missing Result cells
 # from API results so the UI updates immediately without requiring Excel writes.
 try:
     _df_copy = df.copy()
     for idx, _row in _df_copy.iterrows():
+        _resolved = _resolve_row_result(_row, _api_results, _live_scores, _now)
+        if _resolved:
+            _df_copy.at[idx, "Resolved Result"] = _resolved
+        elif "Resolved Result" not in _df_copy.columns:
+            _df_copy["Resolved Result"] = None
+
         cur = _row.get("Result")
         if pd.notna(cur) and str(cur).strip() != "":
             continue
-        t1 = _row.get("Team 1")
-        t2 = _row.get("Team 2")
-        if pd.isna(t1) or pd.isna(t2):
-            continue
-        k1 = _team_key(t1)
-        k2 = _team_key(t2)
-        winner = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
-        if winner:
-            _df_copy.at[idx, "Result"] = winner
+        if _resolved:
+            _df_copy.at[idx, "Result"] = _resolved
     df = _df_copy
 except Exception:
     pass
@@ -1242,10 +1314,13 @@ def flag_html(url):
 # ✅ LEADERBOARD
 # =========================
 
-completed_matches = int(df["Result"].notna().sum())
+if "Resolved Result" not in df.columns:
+    df["Resolved Result"] = df.apply(lambda r: _resolve_row_result(r, _api_results, _live_scores, _now), axis=1)
+
+completed_matches = int(df["Resolved Result"].notna().sum())
 valid_matches = df[df["Team 1"].notna() & df["Team 2"].notna()]
 total_matches = len(valid_matches)
-completed_matches = valid_matches["Result"].notna().sum()
+completed_matches = valid_matches["Resolved Result"].notna().sum()
 remaining_matches = total_matches - completed_matches
 player_count = len([c for c in df.columns if "Pick" in c])
 st.markdown(f"""
@@ -1285,7 +1360,7 @@ for col in pick_cols:
             "Player": player_name,
             "Match":  f"{t1} vs {t2}",
             "Pick":   row[col],
-            "Result": row["Result"],
+            "Result": row.get("Resolved Result", row["Result"]),
         })
 
 data = pd.DataFrame(records)
@@ -1404,6 +1479,7 @@ else:
         team2  = str(row["Team 2"]) if pd.notna(row["Team 2"]) else "TBD"
         dt     = row["DateTime"]
         result = str(row["Result"]).strip() if pd.notna(row["Result"]) else None
+        resolved_result = str(row["Resolved Result"]).strip() if "Resolved Result" in row and pd.notna(row["Resolved Result"]) else None
         k1 = _team_key(team1)
         k2 = _team_key(team2)
 
@@ -1443,9 +1519,9 @@ else:
             # 0-0 placeholder written to Excel by a previous run.  Treat as pending.
             has_result = False
             result = None
-        elif not has_result and api_result and not _in_live_window:
-            # Match is clearly over (> 130 min since kick-off) – trust the API result.
-            result = str(api_result).strip()
+        elif not has_result and (resolved_result or api_result) and not _in_live_window:
+            # Match is clearly over – trust the resolved/API result.
+            result = resolved_result or str(api_result).strip()
             has_result = True
 
         # If a live feed has clearly finished and it's a draw, show Draw.
@@ -1484,9 +1560,8 @@ else:
                 score_html = '<span class="result-draw">⚖ DRAW</span>'
             elif result and _team_key(result) == _team_key(team1):
                 t1_cls, t2_cls = "winner", "loser"
-                # Try to add score if available
                 _score_key = (_team_key(team1), _team_key(team2))
-                _score_data = _api_scores.get(_score_key) if _api_scores else None
+                _score_data = _api_scores.get(_score_key) if isinstance(_api_scores, dict) else None
                 if _score_data:
                     _hs, _as = _score_data
                     score_html = f'<span class="result-win">✓ {team1}<br>WINS {_hs}-{_as}</span>'
@@ -1494,9 +1569,8 @@ else:
                     score_html = f'<span class="result-win">✓ {team1}<br>WINS</span>'
             elif result and _team_key(result) == _team_key(team2):
                 t1_cls, t2_cls = "loser", "winner"
-                # Try to add score if available
                 _score_key = (_team_key(team2), _team_key(team1))
-                _score_data = _api_scores.get(_score_key) if _api_scores else None
+                _score_data = _api_scores.get(_score_key) if isinstance(_api_scores, dict) else None
                 if _score_data:
                     _hs, _as = _score_data
                     score_html = f'<span class="result-win">✓ {team2}<br>WINS {_hs}-{_as}</span>'
