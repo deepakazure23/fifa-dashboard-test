@@ -274,7 +274,7 @@ st.markdown("""
 .flag-blank { width: 38px; height: 26px; display: inline-block; }
 
 /* ── VS / Result divider ── */
-.vs-center { min-width: 88px; text-align: center; }
+.vs-center { min-width: 110px; text-align: center; }
 .vs-text {
     font-family: 'Bebas Neue', Impact, sans-serif;
     font-size: 20px;
@@ -288,11 +288,20 @@ st.markdown("""
     line-height: 1.35;
     letter-spacing: 1px;
 }
+.result-win.score-line {
+    font-size: 26px;
+    letter-spacing: 3px;
+    color: #80e8a8;
+    text-shadow: 0 0 18px rgba(128,232,168,0.35);
+}
 .result-draw {
     font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 16px;
+    font-size: 26px;
     color: #90c8ff;
-    letter-spacing: 2px;
+    letter-spacing: 3px;
+    line-height: 1.2;
+    text-align: center;
+    text-shadow: 0 0 14px rgba(144,200,255,0.3);
 }
 .live-pulse {
     font-family: 'Bebas Neue', Impact, sans-serif;
@@ -519,9 +528,6 @@ st.markdown("""
 <div class="fb" style="left:89%; --fdur:28s; --fdel:-15s">⚽</div>
 """, unsafe_allow_html=True)
 
-FILE_PATH = str(BASE_DIR / "World Cup 2026 Comp.xlsx")
-
-
 NZ_TZ = ZoneInfo("Pacific/Auckland")
 
 def parse_time(val):
@@ -539,7 +545,7 @@ def build_dt(row):
     t = row["ParsedTime"] or datetime.min.time()
     return datetime.combine(base, t).replace(tzinfo=NZ_TZ)
 
-@st.cache_data
+@st.cache_data(ttl=60)
 def load_data(_mtime=0):
     _df = pd.read_excel(FILE_PATH, sheet_name="Sheet1")
     _df["Date (NZDT)"] = pd.to_datetime(_df["Date (NZDT)"], errors="coerce")
@@ -622,13 +628,11 @@ def _is_finishedish(status_text):
     ))
 
 
-@st.cache_data(ttl=10)
+@st.cache_data(ttl=45)
 def fetch_api_results():
-    """Fetch only finished WC2026 results with scores from official / fallback providers.
-    Returns both winner and scores to support score display in UI.
-    """
+    """Fetch only finished WC2026 results from official / fallback providers."""
     _out = {}
-    _scores = {}  # Store scores: (team_key_a, team_key_b) -> (home_score, away_score)
+    _scores_out = {}
     _now = datetime.now(NZ_TZ)
     _diso = _now.strftime("%Y-%m-%d")
 
@@ -714,8 +718,9 @@ def fetch_api_results():
             _w = _n0 if hs > as_ else _n1 if as_ > hs else "Draw"
             _out[(_team_key(_n0), _team_key(_n1))] = _w
             _out[(_team_key(_n1), _team_key(_n0))] = _w
-            _scores[(_team_key(_n0), _team_key(_n1))] = (hs, as_)
-            _scores[(_team_key(_n1), _team_key(_n0))] = (as_, hs)
+            # Store scores so match cards can display "2 - 1" etc.
+            _scores_out[(_team_key(_n0), _team_key(_n1))] = (hs, as_)
+            _scores_out[(_team_key(_n1), _team_key(_n0))] = (as_, hs)
 
     for _url in _urls:
         try:
@@ -756,22 +761,20 @@ def fetch_api_results():
                             continue
 
                         _names = [t.get("team", {}).get("displayName", "") for t in _teams]
-                        _espn_scores = []
+                        _sc = []
                         for _t in _teams:
                             try:
-                                _espn_scores.append(int(_t.get("score", 0) or 0))
+                                _sc.append(int(_t.get("score", 0) or 0))
                             except:
-                                _espn_scores.append(0)
+                                _sc.append(0)
 
                         _n0 = _norm_team(_names[0])
                         _n1 = _norm_team(_names[1])
-                        _h_score = _espn_scores[0]
-                        _a_score = _espn_scores[1]
-                        _w  = _n0 if _h_score > _a_score else _n1 if _a_score > _h_score else "Draw"
+                        _w  = _n0 if _sc[0] > _sc[1] else _n1 if _sc[1] > _sc[0] else "Draw"
                         _out[(_team_key(_n0), _team_key(_n1))] = _w
                         _out[(_team_key(_n1), _team_key(_n0))] = _w
-                        _scores[(_team_key(_n0), _team_key(_n1))] = (_h_score, _a_score)
-                        _scores[(_team_key(_n1), _team_key(_n0))] = (_a_score, _h_score)
+                        _scores_out[(_team_key(_n0), _team_key(_n1))] = (_sc[0], _sc[1])
+                        _scores_out[(_team_key(_n1), _team_key(_n0))] = (_sc[1], _sc[0])
                     if _out:
                         break
                 except:
@@ -797,8 +800,8 @@ def fetch_api_results():
                     _w = _h if _hs>_as else _a if _as>_hs else "Draw"
                     _out[(_h.lower(), _a.lower())] = _w
                     _out[(_a.lower(), _h.lower())] = _w
-                    _scores[(_h.lower(), _a.lower())] = (_hs, _as)
-                    _scores[(_a.lower(), _h.lower())] = (_as, _hs)
+                    _scores_out[(_h.lower(), _a.lower())] = (_hs, _as)
+                    _scores_out[(_a.lower(), _h.lower())] = (_as, _hs)
         except:
             pass
 
@@ -816,12 +819,12 @@ def fetch_api_results():
                     _w = _h if _hs>_as else _a if _as>_hs else "Draw"
                     _out[(_h.lower(), _a.lower())] = _w
                     _out[(_a.lower(), _h.lower())] = _w
-                    _scores[(_h.lower(), _a.lower())] = (_hs, _as)
-                    _scores[(_a.lower(), _h.lower())] = (_as, _hs)
+                    _scores_out[(_h.lower(), _a.lower())] = (_hs, _as)
+                    _scores_out[(_a.lower(), _h.lower())] = (_as, _hs)
         except:
             pass
 
-    return _out, _scores
+    return _out, _scores_out
 
 
 @st.cache_data(ttl=15)
@@ -1057,7 +1060,7 @@ def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="
         if live_scores and (live_scores.get((k1, k2)) or live_scores.get((k2, k1))):
             continue
 
-        # Skip matches that are within the live window (0-30 min after kick-off)
+        # Skip matches that are within the live window (0-130 min after kick-off)
         # to avoid writing a 0-0 placeholder as a final result.
         try:
             if c_date and c_time:
@@ -1071,7 +1074,7 @@ def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="
                     else:
                         _match_dt = _match_dt.replace(tzinfo=NZ_TZ)
                     _secs = (_now_sync - _match_dt).total_seconds()
-                    if 0 <= _secs <= (30 * 60):
+                    if 0 <= _secs <= (130 * 60):
                         continue  # still in live window
         except Exception:
             pass
@@ -1087,16 +1090,7 @@ def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="
     return updated
 
 
-# Download from SharePoint and track sync status
-try:
-    download_workbook()
-    _sharepoint_synced = True
-    _file_mtime = os.path.getmtime(FILE_PATH)
-    _last_updated = datetime.fromtimestamp(_file_mtime, tz=NZ_TZ).strftime("%Y-%m-%d %H:%M:%S NZT")
-except Exception:
-    _sharepoint_synced = False
-    _last_updated = "Local file (SharePoint sync failed)"
-
+# mtime cache key → re-reads Excel only when file is saved
 try:
     _mtime = os.path.getmtime(FILE_PATH)
 except:
@@ -1104,12 +1098,6 @@ except:
 
 _api_results, _api_scores = fetch_api_results()
 _live_scores = fetch_live_scores()
-
-# Initialize _api_scores as empty dict if not defined (safety fallback)
-if not isinstance(_api_scores, dict):
-    _api_scores = {}
-elif not _api_scores:
-    _api_scores = {}
 try:
     _ = sync_results_to_excel(FILE_PATH, _api_results, live_scores=_live_scores)
 except Exception as e:
@@ -1322,10 +1310,6 @@ leaderboard["Accuracy"] = (leaderboard["Points"] / leaderboard["Matches"] * 100)
 
 st.markdown('<div class="section-title">🏆 Leaderboard</div>', unsafe_allow_html=True)
 
-# Display file sync status and last update time
-_sync_status = "✅ SharePoint" if _sharepoint_synced else "⚠️ Local Cache"
-st.caption(f"Data source: {_sync_status} | Last updated: {_last_updated}")
-
 _PALETTE = [
     "#ff6b6b","#ffd43b","#69db7c","#4dabf7","#ff922b",
     "#cc5de8","#20c997","#f06595","#74c0fc","#a9e34b",
@@ -1409,6 +1393,7 @@ else:
 
         live = (_live_scores.get((k1, k2)) or _live_scores.get((k2, k1))) if '_live_scores' in globals() else None
         api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
+        api_score  = (_api_scores.get((k1, k2)) or _api_scores.get((k2, k1))) if '_api_scores' in globals() else None
         has_result = result is not None and str(result).strip() != ""
         live_state = str((live or {}).get("status", "")).casefold()
 
@@ -1428,11 +1413,11 @@ else:
             "finished", "completed", "final", "post", "postperiod"
         )))
 
-        # Time-based live-window guard (0 – 30 min after kick-off).
+        # Time-based live-window guard (0 – 130 min after kick-off).
         # Prevents a stale 0-0 "Draw" from the API being shown as final
         # while the match is still in progress or only just finished.
         _secs_since_ko = (now - dt).total_seconds() if dt else 9999
-        _in_live_window = dt is not None and 0 <= _secs_since_ko <= (30 * 60)
+        _in_live_window = dt is not None and 0 <= _secs_since_ko <= (130 * 60)
 
         if is_live_feed:
             # Live data is available – clear any stale Excel / API result.
@@ -1441,10 +1426,14 @@ else:
         elif _in_live_window and has_result and _is_draw_result(result):
             # A "Draw" within the live window is likely a pre-match / in-progress
             # 0-0 placeholder written to Excel by a previous run.  Treat as pending.
-            has_result = False
-            result = None
-        elif not has_result and api_result and not _in_live_window:
-            # Match is clearly over (> 130 min since kick-off) – trust the API result.
+            # BUT if the API explicitly confirms it as finished, trust the API.
+            api_confirmed = bool(api_result)
+            if not api_confirmed:
+                has_result = False
+                result = None
+        elif not has_result and api_result:
+            # API has a result — trust it regardless of the live window.
+            # The live-window guard was blocking the last match of the day.
             result = str(api_result).strip()
             has_result = True
 
@@ -1480,26 +1469,25 @@ else:
         # ── Centre display ───────────────────────────────────────────────────
         t1_cls = t2_cls = ""
         if status == "Finished":
+            # Try to get the score from API score dict or live feed
+            _fin_score = api_score or (
+                (live.get("home"), live.get("away")) if live else None
+            )
             if result and _is_draw_result(result):
-                score_html = '<span class="result-draw">⚖ DRAW</span>'
+                if _fin_score and _fin_score[0] is not None:
+                    score_html = f'<span class="result-draw">{_fin_score[0]} — {_fin_score[1]}<br><small style="font-size:11px;letter-spacing:1px;">DRAW</small></span>'
+                else:
+                    score_html = '<span class="result-draw">⚖ DRAW</span>'
             elif result and _team_key(result) == _team_key(team1):
                 t1_cls, t2_cls = "winner", "loser"
-                # Try to add score if available
-                _score_key = (_team_key(team1), _team_key(team2))
-                _score_data = _api_scores.get(_score_key) if _api_scores else None
-                if _score_data:
-                    _hs, _as = _score_data
-                    score_html = f'<span class="result-win">✓ {team1}<br>WINS {_hs}-{_as}</span>'
+                if _fin_score and _fin_score[0] is not None:
+                    score_html = f'<span class="result-win score-line">{_fin_score[0]} — {_fin_score[1]}</span>'
                 else:
                     score_html = f'<span class="result-win">✓ {team1}<br>WINS</span>'
             elif result and _team_key(result) == _team_key(team2):
                 t1_cls, t2_cls = "loser", "winner"
-                # Try to add score if available
-                _score_key = (_team_key(team2), _team_key(team1))
-                _score_data = _api_scores.get(_score_key) if _api_scores else None
-                if _score_data:
-                    _hs, _as = _score_data
-                    score_html = f'<span class="result-win">✓ {team2}<br>WINS {_hs}-{_as}</span>'
+                if _fin_score and _fin_score[0] is not None:
+                    score_html = f'<span class="result-win score-line">{_fin_score[0]} — {_fin_score[1]}</span>'
                 else:
                     score_html = f'<span class="result-win">✓ {team2}<br>WINS</span>'
             else:
