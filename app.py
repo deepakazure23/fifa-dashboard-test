@@ -546,8 +546,9 @@ def build_dt(row):
     return datetime.combine(base, t).replace(tzinfo=NZ_TZ)
 
 @st.cache_data(ttl=60)
-def load_data(_mtime=0):
-    _df = pd.read_excel(FILE_PATH, sheet_name="Sheet1")
+def load_data(_mtime=0, _path=None):
+    _target = _path or FILE_PATH
+    _df = pd.read_excel(_target, sheet_name="Sheet1")
     _df["Date (NZDT)"] = pd.to_datetime(_df["Date (NZDT)"], errors="coerce")
     _df["ParsedTime"]  = _df["Time (NZDT)"].apply(parse_time)
     _df["DateTime"]    = _df.apply(build_dt, axis=1)
@@ -1090,10 +1091,44 @@ def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="
     return updated
 
 
+# ── Resolve which Excel file to use ─────────────────────────────────────────
+# Priority: 1) temp-dir copy downloaded from SharePoint
+#           2) local copy committed alongside app.py in the repo
+LOCAL_FILE_PATH = str(BASE_DIR / "World Cup 2026 Comp.xlsx")
+
+def _resolve_file_path():
+    """Return the path to the Excel file, downloading from SharePoint if needed."""
+    # Already have a fresh temp copy — use it
+    if os.path.exists(FILE_PATH):
+        return FILE_PATH
+
+    # Try to download from SharePoint
+    token = os.getenv("GRAPH_ACCESS_TOKEN")
+    if token:
+        try:
+            download_workbook()
+            if os.path.exists(FILE_PATH):
+                return FILE_PATH
+        except Exception as _dl_err:
+            st.warning(f"⚠️ SharePoint download failed: {_dl_err}. Falling back to local file.")
+
+    # Fall back to the repo copy
+    if os.path.exists(LOCAL_FILE_PATH):
+        return LOCAL_FILE_PATH
+
+    st.error(
+        "❌ Could not find the Excel workbook. "
+        "Make sure `World Cup 2026 Comp.xlsx` is committed to your repo "
+        "or that `GRAPH_ACCESS_TOKEN` is set in Streamlit secrets."
+    )
+    st.stop()
+
+FILE_PATH = _resolve_file_path()
+
 # mtime cache key → re-reads Excel only when file is saved
 try:
     _mtime = os.path.getmtime(FILE_PATH)
-except:
+except Exception:
     _mtime = 0
 
 _api_results, _api_scores = fetch_api_results()
@@ -1105,10 +1140,10 @@ except Exception as e:
 
 try:
     _mtime = os.path.getmtime(FILE_PATH)
-except:
+except Exception:
     _mtime = 0
 
-df = load_data(_mtime)
+df = load_data(_mtime, _path=FILE_PATH)
 
 # Create an in-memory copy of the spreadsheet and fill missing Result cells
 # from API results so the UI updates immediately without requiring Excel writes.
