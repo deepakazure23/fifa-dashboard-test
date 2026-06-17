@@ -756,17 +756,17 @@ def fetch_api_results():
                             continue
 
                         _names = [t.get("team", {}).get("displayName", "") for t in _teams]
-                        _scores = []
+                        _espn_scores = []
                         for _t in _teams:
                             try:
-                                _scores.append(int(_t.get("score", 0) or 0))
+                                _espn_scores.append(int(_t.get("score", 0) or 0))
                             except:
-                                _scores.append(0)
+                                _espn_scores.append(0)
 
                         _n0 = _norm_team(_names[0])
                         _n1 = _norm_team(_names[1])
-                        _h_score = _scores[0]
-                        _a_score = _scores[1]
+                        _h_score = _espn_scores[0]
+                        _a_score = _espn_scores[1]
                         _w  = _n0 if _h_score > _a_score else _n1 if _a_score > _h_score else "Draw"
                         _out[(_team_key(_n0), _team_key(_n1))] = _w
                         _out[(_team_key(_n1), _team_key(_n0))] = _w
@@ -1106,7 +1106,9 @@ _api_results, _api_scores = fetch_api_results()
 _live_scores = fetch_live_scores()
 
 # Initialize _api_scores as empty dict if not defined (safety fallback)
-if not _api_scores:
+if not isinstance(_api_scores, dict):
+    _api_scores = {}
+elif not _api_scores:
     _api_scores = {}
 try:
     _ = sync_results_to_excel(FILE_PATH, _api_results, live_scores=_live_scores)
