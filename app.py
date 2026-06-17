@@ -16,8 +16,6 @@ import tempfile
 import base64
 import requests as req
 
-SHAREPOINT_FILE = "https://ahunga.sharepoint.com/:x:/r/sites/CloudSharedPlatforms/Shared%20Documents/General/Fun%20Stuff/FIFA%20World%20Cup%202026/World%20Cup%202026%20Comp.xlsx?d=wed124785bb454f65ba30e5d77600c610&csf=1&web=1&e=4Y1OVT"
-
 FILE_PATH = os.path.join(
     tempfile.gettempdir(),
     "World_Cup_2026_Comp.xlsx"
@@ -1175,40 +1173,6 @@ try:
 except Exception:
     pass
 
-# ── DEBUG: show API state (remove once issue is resolved) ─────────────────
-with st.expander("🔍 DEBUG — API Results", expanded=True):
-    st.write(f"**Current NZT:** {datetime.now(NZ_TZ).strftime('%Y-%m-%d %H:%M:%S')}")
-    st.write(f"**_api_results keys ({len(_api_results)}):**")
-    for k, v in list(_api_results.items()):
-        st.write(f"  `{k}` → `{v}`")
-    st.write(f"**_api_scores keys ({len(_api_scores)}):**")
-    for k, v in list(_api_scores.items()):
-        st.write(f"  `{k}` → `{v}`")
-    st.write(f"**_live_scores keys ({len(_live_scores)}):**")
-    for k, v in _live_scores.items():
-        st.write(f"  `{k}` → `{v}`")
-    # Show today's df rows
-    _now_dbg = datetime.now(NZ_TZ)
-    _dbg_rows = df[df["Date (NZDT)"].dt.date == _now_dbg.date()]
-    st.write(f"**Today's df rows ({len(_dbg_rows)}):**")
-    for _, _r in _dbg_rows.iterrows():
-        st.write(f"  {_r.get('Team 1')} vs {_r.get('Team 2')} → Result: `{_r.get('Result')}` | DateTime: `{_r.get('DateTime')}`")
-    # Raw ESPN probe for today
-    st.write("**Raw ESPN probe (fifa.worldcup today):**")
-    try:
-        _dbg_day = _now_dbg.strftime("%Y%m%d")
-        _dbg_r = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.worldcup/scoreboard?dates={_dbg_day}", timeout=8, headers={"User-Agent":"Mozilla/5.0"})
-        _dbg_evs = _dbg_r.json().get("events", [])
-        st.write(f"  Status: {_dbg_r.status_code}, events: {len(_dbg_evs)}")
-        for _e in _dbg_evs:
-            _c = (_e.get("competitions") or [{}])[0]
-            _t = _c.get("competitors", [])
-            _names = [x.get("team",{}).get("displayName","?") for x in _t]
-            _sc = [x.get("score","?") for x in _t]
-            _st = _c.get("status",{}).get("type",{})
-            st.write(f"  {' vs '.join(_names)} | score: {' - '.join(str(s) for s in _sc)} | completed: {_st.get('completed')} | state: {_st.get('state')}")
-    except Exception as _e:
-        st.write(f"  ESPN probe error: {_e}")
 
 # ── Smart refresh: keep polling while any today's match is live or recently finished ──────────
 _now = datetime.now(NZ_TZ)
@@ -1585,7 +1549,7 @@ else:
                     score_html = (
                         f'<span class="result-win score-line">'
                         f'{_fin_score[0]} — {_fin_score[1]}'
-                        f'<br><small style="font-size:10px;letter-spacing:1px;color:#ffd700;">✓ {team1} WINS</small>'
+                        f'<br><span style="font-size:13px;letter-spacing:2px;color:#ffd700;font-family:\'Bebas Neue\',Impact,sans-serif;">✓ {team1} WINS</span>'
                         f'</span>'
                     )
                 else:
@@ -1596,7 +1560,7 @@ else:
                     score_html = (
                         f'<span class="result-win score-line">'
                         f'{_fin_score[0]} — {_fin_score[1]}'
-                        f'<br><small style="font-size:10px;letter-spacing:1px;color:#ffd700;">✓ {team2} WINS</small>'
+                        f'<br><span style="font-size:13px;letter-spacing:2px;color:#ffd700;font-family:\'Bebas Neue\',Impact,sans-serif;">✓ {team2} WINS</span>'
                         f'</span>'
                     )
                 else:
