@@ -946,8 +946,9 @@ def fetch_live_scores():
                 if as_ is None:
                     as_ = _score(_ev, "AwayTeamScore", "AwayScore")
 
-                if hs is not None and as_ is not None and _is_liveish(_status) and not _is_finishedish(_status):
-                    _store_pair(_h, _a, hs, as_, _status or "live")
+                if hs is not None and as_ is not None and is_live and not _is_finishedish(_status):
+                   _store_pair(_h, _a, hs, as_, _status or "live")
+            
 
             if _out:
                 break
