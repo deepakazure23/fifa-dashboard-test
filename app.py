@@ -705,6 +705,8 @@ def fetch_api_results():
 
             hs = _score(_ev.get("Home"), "Score", "HomeTeamScore")
             as_ = _score(_ev.get("Away"), "Score", "AwayTeamScore")
+
+            
             if hs is None:
                 hs = _score(_ev, "HomeTeamScore", "HomeScore")
             if as_ is None:
@@ -905,6 +907,14 @@ def fetch_live_scores():
             for _ev in (_resp.json().get("Results") or []):
                 _h = _team_name(_ev.get("Home"))
                 _a = _team_name(_ev.get("Away"))
+
+                if "Switzerland" in str(_h) or "Switzerland" in str(_a):
+                    st.write("SWISS DEBUG")
+                    st.write({
+                       "home": _h,
+                       "away": _a,
+                       "raw_event": _ev
+                    })
                 if not _h or not _a:
                     continue
 
