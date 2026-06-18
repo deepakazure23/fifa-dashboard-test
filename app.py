@@ -698,7 +698,14 @@ def fetch_api_results():
                 _ev.get("StatusDescription"),
                 _ev.get("Description"),
             )
+        
+            match_time = str(_ev.get("MatchTime") or "").strip()
+            match_status = _ev.get("MatchStatus")
 
+            is_live = (
+                _is_liveish(_status)
+                or (match_status in (0, 1, 2, 3) and bool(re.search(r"\d+'$", match_time)))
+            )
             # Skip anything that is not explicitly finished.
             if _is_liveish(_status) or not _is_finishedish(_status):
                 continue
