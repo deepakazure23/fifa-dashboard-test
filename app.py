@@ -898,6 +898,133 @@ def fetch_api_results():
     return _out, _scores_out, _datetimes_out
 
 
+@st.cache_data(ttl=3600)   # schedule rarely changes — cache 1 hour
+def fetch_schedule():
+    """
+    Fetch kick-off datetimes (in NZT) for ALL WC2026 matches — past, live, upcoming.
+    Returns dict: (team_key_a, team_key_b) → datetime (NZT, timezone-aware)
+    Sources: FIFA full calendar → ESPN date range → TheSportsDB.
+    Excel dates/times are NEVER used for display; this is the authoritative source.
+    """
+    _out = {}
+    _now = datetime.now(NZ_TZ)
+
+    def _store_dt(name_a, name_b, raw_dt_str):
+        if not raw_dt_str:
+            return
+        try:
+            _dt = datetime.fromisoformat(str(raw_dt_str).replace("Z", "+00:00"))
+            _nzt = _dt.astimezone(NZ_TZ)
+            _k0, _k1 = _team_key(_norm_team(name_a)), _team_key(_norm_team(name_b))
+            if _k0 and _k1:
+                _out[(_k0, _k1)] = _nzt
+                _out[(_k1, _k0)] = _nzt
+        except Exception:
+            pass
+
+    # ── Source 1: FIFA full calendar (all statuses, not just finished) ──────
+    _fifa_urls = [
+        "https://api.fifa.com/api/v3/calendar/matches?count=500&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
+        "https://api.fifa.com/api/v3/calendar/matches?count=500&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en&sort=Date",
+    ]
+    def _first_desc(val):
+        if isinstance(val, list) and val:
+            v = val[0]
+            return (v.get("Description") or v.get("Name") or v.get("Text") or "") if isinstance(v, dict) else str(v)
+        if isinstance(val, dict):
+            return val.get("Description") or val.get("Name") or val.get("Text") or ""
+        return str(val) if val else ""
+
+    def _tname(block):
+        if not isinstance(block, dict): return ""
+        for k in ("ShortClubName", "TeamName", "Name", "Abbreviation"):
+            v = block.get(k)
+            if v:
+                d = _first_desc(v)
+                if d: return d.strip()
+        return ""
+
+    for _url in _fifa_urls:
+        try:
+            _r = req.get(_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if _r.status_code != 200:
+                continue
+            for _ev in (_r.json().get("Results") or []):
+                _h, _a = _tname(_ev.get("Home")), _tname(_ev.get("Away"))
+                if not _h or not _a:
+                    continue
+                for _dk in ("Date", "MatchDateTime", "LocalDate", "UtcDate", "DateUtc", "KickOffTime"):
+                    if _ev.get(_dk):
+                        _store_dt(_h, _a, _ev[_dk])
+                        break
+            if _out:
+                break
+        except Exception:
+            continue
+
+    # ── Source 2: ESPN — scan full tournament date range ────────────────────
+    _tourney_start = datetime(2026, 6, 11, tzinfo=NZ_TZ).date()
+    _tourney_end   = datetime(2026, 7, 20, tzinfo=NZ_TZ).date()
+    _espn_slugs = ["fifa.worldcup", "fifa.world", "global.2026-fifa-world-cup", "fifa.worldcup.2026"]
+
+    # Find working slug
+    _working_slug = None
+    for _slug in _espn_slugs:
+        try:
+            _t = req.get(
+                f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_now.strftime('%Y%m%d')}",
+                timeout=6, headers={"User-Agent": "Mozilla/5.0"}
+            )
+            if _t.status_code == 200 and _t.json().get("events") is not None:
+                _working_slug = _slug
+                break
+        except Exception:
+            continue
+
+    if _working_slug:
+        _d = _tourney_start
+        while _d <= _tourney_end:
+            try:
+                _r = req.get(
+                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_working_slug}/scoreboard?dates={_d.strftime('%Y%m%d')}",
+                    timeout=8, headers={"User-Agent": "Mozilla/5.0"}
+                )
+                if _r.status_code == 200:
+                    for _ev in (_r.json().get("events") or []):
+                        _comp = (_ev.get("competitions") or [{}])[0]
+                        _teams = _comp.get("competitors", [])
+                        if len(_teams) < 2:
+                            continue
+                        _names = [t.get("team", {}).get("displayName", "") for t in _teams]
+                        _raw_dt = _ev.get("date") or _comp.get("date")
+                        if (_team_key(_norm_team(_names[0])), _team_key(_norm_team(_names[1]))) not in _out:
+                            _store_dt(_names[0], _names[1], _raw_dt)
+            except Exception:
+                pass
+            _d += timedelta(days=1)
+
+    # ── Source 3: TheSportsDB — fill any remaining gaps ─────────────────────
+    _d = _tourney_start
+    while _d <= _now.date():
+        try:
+            _r = req.get(
+                f"https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d={_d.strftime('%Y-%m-%d')}&l=FIFA+World+Cup",
+                timeout=6, headers={"User-Agent": "Mozilla/5.0"}
+            )
+            if _r.status_code == 200:
+                for _ev in (_r.json().get("events") or []):
+                    _h = _ESPN_MAP.get((_ev.get("strHomeTeam") or "").lower(), _ev.get("strHomeTeam", ""))
+                    _a = _ESPN_MAP.get((_ev.get("strAwayTeam") or "").lower(), _ev.get("strAwayTeam", ""))
+                    _k0, _k1 = _team_key(_h), _team_key(_a)
+                    if (_k0, _k1) not in _out:
+                        _store_dt(_h, _a, _ev.get("strTimestamp") or _ev.get("strDateTimeUTC"))
+        except Exception:
+            pass
+        _d += timedelta(days=1)
+
+    return _out
+
+
 @st.cache_data(ttl=15)
 def fetch_live_scores():
     """Fetch live scores for ongoing matches.
@@ -1220,7 +1347,8 @@ except Exception:
     _mtime = 0
 
 _api_results, _api_scores, _api_datetimes = fetch_api_results()
-_live_scores = fetch_live_scores()
+_live_scores  = fetch_live_scores()
+_api_schedule = fetch_schedule()   # authoritative kick-off times for ALL matches
 try:
     _ = sync_results_to_excel(FILE_PATH, _api_results, api_scores=_api_scores, live_scores=_live_scores)
 except Exception as e:
@@ -1233,39 +1361,48 @@ except Exception:
 
 df = load_data(_mtime, _path=FILE_PATH)
 
-# Create an in-memory copy of the spreadsheet and fill missing Result cells
+# Create an in-memory copy of the spreadsheet and fill missing Result/Score cells
 # from API results so the UI updates immediately without requiring Excel writes.
+# API dates are also applied to ALL rows to fix wrong Excel dates.
 try:
     _df_copy = df.copy()
     _now_patch = datetime.now(NZ_TZ)
     for idx, _row in _df_copy.iterrows():
-        cur = _row.get("Result")
-        if pd.notna(cur) and str(cur).strip() != "":
-            continue
         t1 = _row.get("Team 1")
         t2 = _row.get("Team 2")
         if pd.isna(t1) or pd.isna(t2):
             continue
-        # Only patch matches that have already kicked off
-        _match_dt = _row.get("DateTime")
-        if _match_dt is not None and _match_dt > _now_patch:
-            continue
         k1 = _team_key(t1)
         k2 = _team_key(t2)
+
+        # ── Always patch datetime from API for every row (fixes wrong Excel dates) ──
+        # _api_schedule covers all matches (upcoming + finished); _api_datetimes is finished-only fallback
+        _sched_dt = (
+            _api_schedule.get((k1, k2)) or _api_schedule.get((k2, k1))
+            if '_api_schedule' in globals() else None
+        ) or (
+            _api_datetimes.get((k1, k2)) or _api_datetimes.get((k2, k1))
+            if '_api_datetimes' in globals() else None
+        )
+        if _sched_dt is not None:
+            _df_copy.at[idx, "DateTime"]    = _sched_dt
+            _df_copy.at[idx, "Date (NZDT)"] = pd.Timestamp(_sched_dt.date())
+
+        # ── Only patch result/score for blank rows that have already kicked off ──
+        cur = _row.get("Result")
+        if pd.notna(cur) and str(cur).strip() != "":
+            continue
+        _match_dt = _df_copy.at[idx, "DateTime"]   # use the potentially-updated value
+        if _match_dt is not None and pd.notna(_match_dt) and _match_dt > _now_patch:
+            continue
         winner = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
         if winner:
             _df_copy.at[idx, "Result"] = winner
-        # Patch score too for immediate display
         cur_score = _row.get("Score")
         if (pd.isna(cur_score) if isinstance(cur_score, float) else not cur_score):
             sc = _api_scores.get((k1, k2)) if '_api_scores' in globals() else None
             if sc:
                 _df_copy.at[idx, "Score"] = f"{sc[0]}-{sc[1]}"
-        # Override DateTime from API (authoritative) — fixes wrong Excel dates
-        if '_api_datetimes' in globals():
-            api_dt = _api_datetimes.get((k1, k2)) or _api_datetimes.get((k2, k1))
-            if api_dt is not None:
-                _df_copy.at[idx, "DateTime"] = api_dt
     df = _df_copy
 except Exception:
     pass
@@ -1551,11 +1688,16 @@ else:
         api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
         api_score  = (_api_scores.get((k1, k2)) or _api_scores.get((k2, k1))) if '_api_scores' in globals() else None
 
-        # Override dt from API (authoritative) — fixes wrong Excel dates/times
-        if '_api_datetimes' in globals():
-            _api_dt = _api_datetimes.get((k1, k2)) or _api_datetimes.get((k2, k1))
-            if _api_dt is not None:
-                dt = _api_dt
+        # Override dt from API schedule (covers upcoming + finished) — Excel dates never used
+        _sched_dt = (
+            (_api_schedule.get((k1, k2)) or _api_schedule.get((k2, k1)))
+            if '_api_schedule' in globals() else None
+        ) or (
+            (_api_datetimes.get((k1, k2)) or _api_datetimes.get((k2, k1)))
+            if '_api_datetimes' in globals() else None
+        )
+        if _sched_dt is not None:
+            dt = _sched_dt
 
         # API is authoritative — always prefer API result + score over Excel
         if api_result:
