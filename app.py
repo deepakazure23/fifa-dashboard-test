@@ -627,11 +627,12 @@ def _is_finishedish(status_text):
     ))
 
 
-@st.cache_data(ttl=45)
+@st.cache_data(ttl=120)
 def fetch_api_results():
     """Fetch only finished WC2026 results from official / fallback providers."""
     _out = {}
     _scores_out = {}
+    _datetimes_out = {}  # team pair → kick-off datetime in NZT
     _now = datetime.now(NZ_TZ)
     _diso = _now.strftime("%Y-%m-%d")
 
@@ -720,6 +721,18 @@ def fetch_api_results():
             # Store scores so match cards can display "2 - 1" etc.
             _scores_out[(_team_key(_n0), _team_key(_n1))] = (hs, as_)
             _scores_out[(_team_key(_n1), _team_key(_n0))] = (as_, hs)
+            # Store API kick-off datetime (authoritative — overrides Excel dates)
+            for _dk in ("Date", "MatchDateTime", "LocalDate", "UtcDate", "DateUtc", "KickOffTime"):
+                _dv = _ev.get(_dk)
+                if _dv:
+                    try:
+                        _dt_parsed = datetime.fromisoformat(str(_dv).replace("Z", "+00:00"))
+                        _dt_nzt = _dt_parsed.astimezone(NZ_TZ)
+                        _datetimes_out[(_team_key(_n0), _team_key(_n1))] = _dt_nzt
+                        _datetimes_out[(_team_key(_n1), _team_key(_n0))] = _dt_nzt
+                        break
+                    except Exception:
+                        pass
 
     for _url in _urls:
         try:
@@ -731,31 +744,49 @@ def fetch_api_results():
         except:
             continue
 
-    # Always run ESPN regardless — FIFA may have missed some matches.
-    _days = [(_now.date() + timedelta(days=d)).strftime("%Y%m%d") for d in (-1, 0, 1)]
+    # Always run ESPN for a full date range — FIFA may have missed matches,
+    # and ESPN covers the entire tournament history.
+    # Generate all dates from tournament start through today + 1
+    _tourney_start = datetime(2026, 6, 11, tzinfo=NZ_TZ).date()
+    _scan_end      = (_now + timedelta(days=1)).date()
+    _all_days = []
+    _d = _tourney_start
+    while _d <= _scan_end:
+        _all_days.append(_d.strftime("%Y%m%d"))
+        _d += timedelta(days=1)
+
     _espn_slugs = [
         "fifa.worldcup",
         "fifa.world",
         "global.2026-fifa-world-cup",
         "fifa.worldcup.2026",
     ]
-    for _day in _days:
-        _espn_found = False
-        for _slug in _espn_slugs:
+    # Find the working slug first using today's date
+    _working_slug = None
+    for _slug in _espn_slugs:
+        try:
+            _test = req.get(
+                f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_now.strftime('%Y%m%d')}",
+                timeout=8, headers={"User-Agent": "Mozilla/5.0"}
+            )
+            if _test.status_code == 200 and _test.json().get("events") is not None:
+                _working_slug = _slug
+                break
+        except:
+            continue
+
+    if _working_slug:
+        for _day in _all_days:
             try:
-                _url  = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_day}"
+                _url  = f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_working_slug}/scoreboard?dates={_day}"
                 _resp = req.get(_url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
                 if _resp.status_code != 200:
                     continue
-                _data = _resp.json()
-                _ev_list = _data.get("events", [])
-                if not _ev_list:
-                    continue
-                _espn_found = True
+                _ev_list = _resp.json().get("events", [])
                 for _ev in _ev_list:
-                    _comp  = (_ev.get("competitions") or [{}])[0]
+                    _comp   = (_ev.get("competitions") or [{}])[0]
                     _status = _comp.get("status", {}).get("type", {})
-                    _done  = bool(_status.get("completed", False) or _status.get("state") == "post")
+                    _done   = bool(_status.get("completed", False) or _status.get("state") == "post")
                     if not _done:
                         continue
 
@@ -774,42 +805,74 @@ def fetch_api_results():
                     _n0 = _norm_team(_names[0])
                     _n1 = _norm_team(_names[1])
                     _k0, _k1 = _team_key(_n0), _team_key(_n1)
-                    # Only fill gaps — don't overwrite FIFA data
+                    # Fill result + score gaps (don't overwrite FIFA data)
                     if (_k0, _k1) not in _out:
-                        _w  = _n0 if _sc[0] > _sc[1] else _n1 if _sc[1] > _sc[0] else "Draw"
+                        _w = _n0 if _sc[0] > _sc[1] else _n1 if _sc[1] > _sc[0] else "Draw"
                         _out[(_k0, _k1)] = _w
                         _out[(_k1, _k0)] = _w
+                    # Always fill score gaps from ESPN
+                    if (_k0, _k1) not in _scores_out:
                         _scores_out[(_k0, _k1)] = (_sc[0], _sc[1])
                         _scores_out[(_k1, _k0)] = (_sc[1], _sc[0])
-                if _espn_found:
-                    break  # found events for this day on this slug
+                    # Fill datetime gaps
+                    if (_k0, _k1) not in _datetimes_out:
+                        _raw_dt = _ev.get("date") or _comp.get("date")
+                        if _raw_dt:
+                            try:
+                                _dt_p = datetime.fromisoformat(str(_raw_dt).replace("Z","+00:00"))
+                                _dt_nzt = _dt_p.astimezone(NZ_TZ)
+                                _datetimes_out[(_k0, _k1)] = _dt_nzt
+                                _datetimes_out[(_k1, _k0)] = _dt_nzt
+                            except Exception:
+                                pass
             except:
                 continue
 
-    # TheSportsDB — fills any remaining gaps
-    try:
-        _url  = f"https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d={_diso}&l=FIFA+World+Cup"
-        _resp = req.get(_url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
-        if _resp.status_code == 200:
-            _fin_stati = {"match finished","ft","aet","pen","ap"}
+    # TheSportsDB — fills any remaining gaps across all past tournament dates
+    _fin_stati = {"match finished","ft","aet","pen","ap"}
+    _past_days = []
+    _d2 = _tourney_start
+    while _d2 <= _now.date():
+        _past_days.append(_d2.strftime("%Y-%m-%d"))
+        _d2 += timedelta(days=1)
+
+    for _tsdb_date in _past_days:
+        # Skip if we already have all matches for this date from ESPN/FIFA
+        try:
+            _url  = f"https://www.thesportsdb.com/api/v1/json/3/eventsday.php?d={_tsdb_date}&l=FIFA+World+Cup"
+            _resp = req.get(_url, timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+            if _resp.status_code != 200:
+                continue
             for _ev in (_resp.json().get("events") or []):
                 _st = (_ev.get("strStatus") or "").lower().strip()
                 _hs_raw = _ev.get("intHomeScore")
                 _as_raw = _ev.get("intAwayScore")
-                if _st not in _fin_stati or _hs_raw is None: continue
+                if _st not in _fin_stati or _hs_raw is None:
+                    continue
                 _h = _ESPN_MAP.get((_ev.get("strHomeTeam") or "").lower(), _ev.get("strHomeTeam", ""))
                 _a = _ESPN_MAP.get((_ev.get("strAwayTeam") or "").lower(), _ev.get("strAwayTeam", ""))
                 _k0, _k1 = _h.lower(), _a.lower()
+                try: _hs, _as = int(_hs_raw), int(_as_raw)
+                except: _hs, _as = 0, 0
                 if (_k0, _k1) not in _out:
-                    try: _hs, _as = int(_hs_raw), int(_as_raw)
-                    except: _hs, _as = 0, 0
                     _w = _h if _hs>_as else _a if _as>_hs else "Draw"
                     _out[(_k0, _k1)] = _w
                     _out[(_k1, _k0)] = _w
+                if (_k0, _k1) not in _scores_out:
                     _scores_out[(_k0, _k1)] = (_hs, _as)
                     _scores_out[(_k1, _k0)] = (_as, _hs)
-    except:
-        pass
+                if (_k0, _k1) not in _datetimes_out:
+                    _ts = _ev.get("strTimestamp") or _ev.get("strDateTimeUTC")
+                    if _ts:
+                        try:
+                            _dt_p = datetime.fromisoformat(str(_ts).replace("Z","+00:00"))
+                            _dt_nzt = _dt_p.astimezone(NZ_TZ)
+                            _datetimes_out[(_k0, _k1)] = _dt_nzt
+                            _datetimes_out[(_k1, _k0)] = _dt_nzt
+                        except Exception:
+                            pass
+        except:
+            continue
 
     # Scoreaxis — last resort for any still-missing matches
     try:
@@ -832,7 +895,7 @@ def fetch_api_results():
     except:
         pass
 
-    return _out, _scores_out
+    return _out, _scores_out, _datetimes_out
 
 
 @st.cache_data(ttl=15)
@@ -1021,12 +1084,11 @@ def fetch_live_scores():
     return _out
 
 
-def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="Sheet1"):
+def sync_results_to_excel(file_path, api_results, api_scores=None, live_scores=None, sheet_name="Sheet1"):
     """
-    Write API results back into the Excel Result column.
-    Only fills blank Result cells so manual values stay intact.
-    Skips any match that is currently live (present in live_scores) to
-    prevent pre/in-match 0-0 scores being written as final results.
+    Write API results (and scores) back into the Excel Result / Score columns.
+    Only fills blank cells so manual values stay intact.
+    Skips any match that is currently live or in the live window.
     """
     wb = load_workbook(file_path)
     ws = wb[sheet_name]
@@ -1043,6 +1105,12 @@ def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="
     c_date   = headers.get("Date (NZDT)")
     c_time   = headers.get("Time (NZDT)")
 
+    # Create Score column if it doesn't exist yet
+    c_score = headers.get("Score")
+    if not c_score:
+        c_score = ws.max_column + 1
+        ws.cell(1, c_score).value = "Score"
+
     if not c_team1 or not c_team2 or not c_result:
         raise ValueError("Missing required columns: Team 1, Team 2, Result")
 
@@ -1057,8 +1125,16 @@ def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="
         if team1 is None or team2 is None:
             continue
 
-        # Keep manual values if already present.
+        # Keep manual result if already present.
         if current_result is not None and str(current_result).strip() != "":
+            # But still try to backfill a missing score for already-finished matches
+            current_score = ws.cell(r, c_score).value
+            if (current_score is None or str(current_score).strip() == "") and api_scores:
+                k1, k2 = _team_key(team1), _team_key(team2)
+                sc = api_scores.get((k1, k2)) or api_scores.get((k2, k1))
+                if sc:
+                    ws.cell(r, c_score).value = f"{sc[0]}-{sc[1]}"
+                    updated += 1
             continue
 
         k1 = _team_key(team1)
@@ -1090,6 +1166,11 @@ def sync_results_to_excel(file_path, api_results, live_scores=None, sheet_name="
         winner = api_results.get((k1, k2)) or api_results.get((k2, k1))
         if winner:
             ws.cell(r, c_result).value = winner
+            # Also persist the score
+            if api_scores:
+                sc = api_scores.get((k1, k2)) or api_scores.get((k2, k1))
+                if sc:
+                    ws.cell(r, c_score).value = f"{sc[0]}-{sc[1]}"
             updated += 1
 
     if updated:
@@ -1138,10 +1219,10 @@ try:
 except Exception:
     _mtime = 0
 
-_api_results, _api_scores = fetch_api_results()
+_api_results, _api_scores, _api_datetimes = fetch_api_results()
 _live_scores = fetch_live_scores()
 try:
-    _ = sync_results_to_excel(FILE_PATH, _api_results, live_scores=_live_scores)
+    _ = sync_results_to_excel(FILE_PATH, _api_results, api_scores=_api_scores, live_scores=_live_scores)
 except Exception as e:
     st.warning(f"Could not sync API results back to Excel: {e}")
 
@@ -1156,6 +1237,7 @@ df = load_data(_mtime, _path=FILE_PATH)
 # from API results so the UI updates immediately without requiring Excel writes.
 try:
     _df_copy = df.copy()
+    _now_patch = datetime.now(NZ_TZ)
     for idx, _row in _df_copy.iterrows():
         cur = _row.get("Result")
         if pd.notna(cur) and str(cur).strip() != "":
@@ -1164,11 +1246,26 @@ try:
         t2 = _row.get("Team 2")
         if pd.isna(t1) or pd.isna(t2):
             continue
+        # Only patch matches that have already kicked off
+        _match_dt = _row.get("DateTime")
+        if _match_dt is not None and _match_dt > _now_patch:
+            continue
         k1 = _team_key(t1)
         k2 = _team_key(t2)
         winner = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
         if winner:
             _df_copy.at[idx, "Result"] = winner
+        # Patch score too for immediate display
+        cur_score = _row.get("Score")
+        if (pd.isna(cur_score) if isinstance(cur_score, float) else not cur_score):
+            sc = _api_scores.get((k1, k2)) if '_api_scores' in globals() else None
+            if sc:
+                _df_copy.at[idx, "Score"] = f"{sc[0]}-{sc[1]}"
+        # Override DateTime from API (authoritative) — fixes wrong Excel dates
+        if '_api_datetimes' in globals():
+            api_dt = _api_datetimes.get((k1, k2)) or _api_datetimes.get((k2, k1))
+            if api_dt is not None:
+                _df_copy.at[idx, "DateTime"] = api_dt
     df = _df_copy
 except Exception:
     pass
@@ -1453,6 +1550,26 @@ else:
         live = (_live_scores.get((k1, k2)) or _live_scores.get((k2, k1))) if '_live_scores' in globals() else None
         api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
         api_score  = (_api_scores.get((k1, k2)) or _api_scores.get((k2, k1))) if '_api_scores' in globals() else None
+
+        # Override dt from API (authoritative) — fixes wrong Excel dates/times
+        if '_api_datetimes' in globals():
+            _api_dt = _api_datetimes.get((k1, k2)) or _api_datetimes.get((k2, k1))
+            if _api_dt is not None:
+                dt = _api_dt
+
+        # API is authoritative — always prefer API result + score over Excel
+        if api_result:
+            result = str(api_result).strip()
+        if api_score is None:
+            # Fall back to persisted score from Excel only if API has nothing
+            _raw_score = row.get("Score") if hasattr(row, "get") else None
+            if _raw_score and pd.notna(_raw_score):
+                try:
+                    _parts = str(_raw_score).split("-")
+                    if len(_parts) == 2:
+                        api_score = (int(_parts[0]), int(_parts[1]))
+                except Exception:
+                    pass
         has_result = result is not None and str(result).strip() != ""
         live_state = str((live or {}).get("status", "")).casefold()
 
@@ -1491,9 +1608,8 @@ else:
             if not api_confirmed:
                 has_result = False
                 result = None
-        elif not has_result and api_result:
-            # API has a result — trust it regardless of the live window.
-            # The live-window guard was blocking the last match of the day.
+        elif not has_result and api_result and (dt is None or dt <= now):
+            # API has a result — trust it, but only for matches that have kicked off.
             result = str(api_result).strip()
             has_result = True
 
