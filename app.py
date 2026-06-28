@@ -526,6 +526,73 @@ section[data-testid="stSidebar"]        { display: none !important; }
 button[data-testid="collapsedControl"]  { display: none !important; }
 #MainMenu { display: none !important; }
 footer    { display: none !important; }
+
+/* ── Tournament stats + top scorers panel ── */
+.ts-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 0 0 22px;
+}
+@media (max-width: 700px) { .ts-panel { grid-template-columns: 1fr; } }
+.ts-card {
+    background: linear-gradient(135deg, #08111f 0%, #0d1b30 100%);
+    border: 1px solid #1a3050;
+    border-radius: 12px;
+    padding: 16px 18px 12px;
+}
+.ts-card-title {
+    font-family: 'Bebas Neue', Impact, sans-serif;
+    font-size: 15px;
+    letter-spacing: 3px;
+    color: #d4af37;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+}
+.ts-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.045);
+}
+.ts-row:last-child { border-bottom: none; }
+.ts-pos {
+    font-family: 'Bebas Neue', Impact, sans-serif;
+    font-size: 16px;
+    width: 22px;
+    color: #4a6a8a;
+    flex-shrink: 0;
+    text-align: center;
+}
+.ts-pos.gold   { color: #ffd700; }
+.ts-pos.silver { color: #c0c0c0; }
+.ts-pos.bronze { color: #cd7f32; }
+.ts-flag-sm { flex-shrink: 0; }
+.ts-flag-sm img { width: 24px; height: 16px; object-fit: cover; border-radius: 2px; border: 1px solid rgba(255,255,255,0.12); }
+.ts-info { flex: 1; min-width: 0; }
+.ts-name-sm {
+    font-family: 'Roboto Condensed', Arial, sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    color: #c8d4f0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ts-team-sm { font-size: 10px; color: #506080; font-family: 'Roboto Condensed',Arial,sans-serif; }
+.ts-val {
+    font-family: 'Bebas Neue', Impact, sans-serif;
+    font-size: 20px;
+    min-width: 28px;
+    text-align: right;
+    flex-shrink: 0;
+}
+.ts-val.goals   { color: #80e8a8; }
+.ts-val.assists { color: #74c0fc; }
+.ts-val.yellow  { color: #ffd43b; }
+.ts-val.red     { color: #ff6b6b; }
+.ts-val-lbl { font-size: 9px; color: #405060; letter-spacing: 1px; text-align: right; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1062,6 +1129,210 @@ def fetch_schedule():
     return _out
 
 
+@st.cache_data(ttl=120)
+def fetch_match_goalscorers():
+    """
+    Returns {(k1,k2): {"home":[{name,minute,og}], "away":[...]}}
+    Tries FIFA MatchEvents → ESPN competition details.
+    """
+    _out = {}
+    _now = datetime.now(NZ_TZ)
+
+    def _d(val):
+        if isinstance(val, list) and val:
+            v = val[0]
+            return (v.get("Description","") or v.get("Name","") if isinstance(v, dict) else str(v))
+        if isinstance(val, dict): return val.get("Description","") or val.get("Name","")
+        return str(val) if val else ""
+
+    def _tname(b):
+        if not isinstance(b, dict): return ""
+        for k in ("ShortClubName","TeamName","Name"):
+            v = b.get(k)
+            if v:
+                t = _d(v)
+                if t: return t.strip()
+        return ""
+
+    # ── FIFA ────────────────────────────────────────────────────────────────
+    try:
+        _r = req.get(
+            "https://api.fifa.com/api/v3/calendar/matches?count=500"
+            "&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
+            timeout=12, headers={"User-Agent": "Mozilla/5.0"}
+        )
+        if _r.status_code == 200:
+            for _ev in (_r.json().get("Results") or []):
+                _h_blk = _ev.get("Home") or {}
+                _a_blk = _ev.get("Away") or {}
+                _h = _norm_team(_tname(_h_blk))
+                _a = _norm_team(_tname(_a_blk))
+                if not _h or not _a: continue
+                _k0, _k1 = _team_key(_h), _team_key(_a)
+                _home_id = str(_h_blk.get("IdTeam") or _h_blk.get("TeamId") or "")
+                _hg, _ag = [], []
+                for _me in (_ev.get("MatchEvents") or []):
+                    _tid  = str(_me.get("IdTeam") or _me.get("TeamId") or "")
+                    _type = str(_me.get("TypeId") or _me.get("Type") or "")
+                    _txt  = str(_me.get("EventDescription") or _me.get("TypeName") or "").lower()
+                    # TypeId: 0=goal, 1=own goal, 2=penalty; ignore cards etc
+                    if _type not in ("0","1","2") and "goal" not in _txt: continue
+                    _og   = _type == "1" or "own" in _txt
+                    _sraw = _me.get("Scorer") or _me.get("PlayerName") or {}
+                    if isinstance(_sraw, dict):
+                        _sname = _d(_sraw.get("ShortName") or _sraw.get("Name") or "")
+                    else:
+                        _sname = str(_sraw)
+                    _min  = str(_me.get("MatchMinute") or _me.get("Minute") or "?")
+                    _entry = {"name": _sname.strip(), "minute": _min, "og": _og}
+                    (_hg if _tid == _home_id else _ag).append(_entry)
+                if _hg or _ag:
+                    _out[(_k0,_k1)] = {"home": _hg, "away": _ag}
+                    _out[(_k1,_k0)] = {"home": _ag, "away": _hg}
+    except Exception:
+        pass
+
+    # ── ESPN competition details fallback ────────────────────────────────────
+    try:
+        _espn_slugs = ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]
+        _slug = None
+        for _s in _espn_slugs:
+            _t = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_s}/scoreboard?dates={_now.strftime('%Y%m%d')}",
+                         timeout=6, headers={"User-Agent":"Mozilla/5.0"})
+            if _t.status_code == 200 and _t.json().get("events") is not None:
+                _slug = _s; break
+        if _slug:
+            _d2 = datetime(2026, 6, 11).date()
+            while _d2 <= _now.date():
+                _r2 = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_d2.strftime('%Y%m%d')}",
+                              timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+                if _r2.status_code == 200:
+                    for _ev in (_r2.json().get("events") or []):
+                        _comp  = (_ev.get("competitions") or [{}])[0]
+                        _teams = _comp.get("competitors",[])
+                        if len(_teams) < 2: continue
+                        _names = [t.get("team",{}).get("displayName","") for t in _teams]
+                        _k0 = _team_key(_norm_team(_names[0]))
+                        _k1 = _team_key(_norm_team(_names[1]))
+                        if (_k0,_k1) in _out: continue
+                        _hg, _ag = [], []
+                        for _sc in (_comp.get("details") or []):
+                            _txt2 = str(_sc.get("type",{}).get("text","")).lower()
+                            if not any(g in _txt2 for g in ("goal","penalty")): continue
+                            _inv  = _sc.get("athletesInvolved") or []
+                            _sn   = _inv[0].get("displayName","") if _inv else ""
+                            _min2 = _sc.get("clock",{}).get("displayValue","?")
+                            _og2  = "own" in _txt2
+                            _g    = {"name":_sn,"minute":_min2,"og":_og2}
+                            (_hg if _sc.get("homeAway","")=="home" else _ag).append(_g)
+                        if _hg or _ag:
+                            _out[(_k0,_k1)] = {"home":_hg,"away":_ag}
+                            _out[(_k1,_k0)] = {"home":_ag,"away":_hg}
+                _d2 += timedelta(days=1)
+    except Exception:
+        pass
+
+    return _out
+
+
+@st.cache_data(ttl=300)
+def fetch_player_stats():
+    """
+    Returns dict with keys: top_scorers, top_assists, yellow_cards, red_cards
+    Each is a list of {name, team, count, flag_code}
+    """
+    _now = datetime.now(NZ_TZ)
+    _result = {"top_scorers":[], "top_assists":[], "yellow_cards":[], "red_cards":[]}
+
+    def _desc(val):
+        if isinstance(val, list) and val:
+            v = val[0]; return (v.get("Description","") if isinstance(v,dict) else str(v))
+        if isinstance(val, dict): return val.get("Description","") or val.get("Name","")
+        return str(val) if val else ""
+
+    # ── Build from FIFA match events ─────────────────────────────────────────
+    _scorers   = {}   # player → {team, goals}
+    _assisters = {}
+    _yellows   = {}
+    _reds      = {}
+
+    try:
+        _r = req.get(
+            "https://api.fifa.com/api/v3/calendar/matches?count=500"
+            "&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
+            timeout=12, headers={"User-Agent":"Mozilla/5.0"}
+        )
+        if _r.status_code == 200:
+            for _ev in (_r.json().get("Results") or []):
+                def _tname2(b):
+                    if not isinstance(b, dict): return ""
+                    for k in ("ShortClubName","TeamName","Name"):
+                        v = b.get(k)
+                        if v:
+                            t = _desc(v)
+                            if t: return t.strip()
+                    return ""
+                _h_blk = _ev.get("Home") or {}
+                _a_blk = _ev.get("Away") or {}
+                _home_id = str(_h_blk.get("IdTeam") or _h_blk.get("TeamId") or "")
+                _h_name  = _norm_team(_tname2(_h_blk))
+                _a_name  = _norm_team(_tname2(_a_blk))
+
+                for _me in (_ev.get("MatchEvents") or []):
+                    _tid   = str(_me.get("IdTeam") or _me.get("TeamId") or "")
+                    _team  = _h_name if _tid == _home_id else _a_name
+                    _type  = str(_me.get("TypeId") or "")
+                    _txt   = str(_me.get("EventDescription") or _me.get("TypeName") or "").lower()
+
+                    def _pname(key):
+                        raw = _me.get(key) or {}
+                        if isinstance(raw, dict):
+                            return _desc(raw.get("ShortName") or raw.get("Name") or "")
+                        return str(raw)
+
+                    # Goals (0=goal, 2=penalty)
+                    if _type in ("0","2") or ("goal" in _txt and "own" not in _txt):
+                        _sn = _pname("Scorer") or _pname("PlayerName")
+                        if _sn:
+                            if _sn not in _scorers: _scorers[_sn] = {"team":_team,"count":0}
+                            _scorers[_sn]["count"] += 1
+
+                    # Assists
+                    if _type == "0" or "goal" in _txt:
+                        _an = _pname("Assist") or _pname("AssistPlayer")
+                        if _an:
+                            if _an not in _assisters: _assisters[_an] = {"team":_team,"count":0}
+                            _assisters[_an]["count"] += 1
+
+                    # Yellow cards (TypeId 4 or 5)
+                    if _type in ("4","5") or "yellow" in _txt:
+                        _pn = _pname("Player") or _pname("PlayerName")
+                        if _pn:
+                            if _pn not in _yellows: _yellows[_pn] = {"team":_team,"count":0}
+                            _yellows[_pn]["count"] += 1
+
+                    # Red cards (TypeId 6 or 7)
+                    if _type in ("6","7") or "red" in _txt:
+                        _pn = _pname("Player") or _pname("PlayerName")
+                        if _pn:
+                            if _pn not in _reds: _reds[_pn] = {"team":_team,"count":0}
+                            _reds[_pn]["count"] += 1
+    except Exception:
+        pass
+
+    def _to_list(d, top=5):
+        rows = [{"name":n,"team":v["team"],"count":v["count"],
+                 "flag_code":TEAM_FLAG_MAP.get(v["team"],"")} for n,v in d.items()]
+        rows.sort(key=lambda x: -x["count"])
+        return rows[:top]
+
+    _result["top_scorers"]   = _to_list(_scorers)
+    _result["top_assists"]   = _to_list(_assisters)
+    _result["yellow_cards"]  = _to_list(_yellows)
+    _result["red_cards"]     = _to_list(_reds)
+    return _result
+
+
 @st.cache_data(ttl=15)
 def fetch_live_scores():
     """Fetch live scores for ongoing matches.
@@ -1384,8 +1655,10 @@ except Exception:
     _mtime = 0
 
 _api_results, _api_scores, _api_datetimes = fetch_api_results()
-_live_scores  = fetch_live_scores()
-_api_schedule = fetch_schedule()   # authoritative kick-off times for ALL matches
+_live_scores    = fetch_live_scores()
+_api_schedule   = fetch_schedule()
+_goalscorers    = fetch_match_goalscorers()
+_tourney_stats  = fetch_player_stats()
 try:
     _ = sync_results_to_excel(FILE_PATH, _api_results, api_scores=_api_scores, live_scores=_live_scores)
 except Exception as e:
@@ -1639,6 +1912,58 @@ leaderboard.insert(0, "Rank", compute_ranks(leaderboard["Points"].tolist()))
 leaderboard["Accuracy"] = (leaderboard["Points"] / leaderboard["Matches"] * 100).round(1).astype(str) + "%"
 
 st.markdown('<div class="section-title">🏆 Leaderboard</div>', unsafe_allow_html=True)
+
+# ── Tournament Stats + Top Scorers panel ────────────────────────────────────
+def _ts_rows(items, val_key="count", val_cls="goals"):
+    """Render 5 rows of a stat list."""
+    medals = {1:"🥇",2:"🥈",3:"🥉"}
+    pos_cls = {1:"gold",2:"silver",3:"bronze"}
+    rows = ""
+    for i, p in enumerate(items[:5], 1):
+        _fc   = p.get("flag_code","")
+        _flag = f'<img src="https://flagcdn.com/w40/{_fc}.png" onerror="this.style.display=\'none\'">' if _fc else ""
+        _pos  = medals.get(i, str(i))
+        _pcls = pos_cls.get(i, "")
+        rows += f"""
+        <div class="ts-row">
+            <div class="ts-pos {_pcls}">{_pos}</div>
+            <div class="ts-flag-sm">{_flag}</div>
+            <div class="ts-info">
+                <div class="ts-name-sm">{p.get("name","")}</div>
+                <div class="ts-team-sm">{p.get("team","")}</div>
+            </div>
+            <div style="text-align:right">
+                <div class="ts-val {val_cls}">{p.get(val_key,0)}</div>
+            </div>
+        </div>"""
+    return rows or '<div style="color:#506080;font-size:12px;padding:8px 0">No data yet</div>'
+
+if _tourney_stats:
+    _scorers_html  = _ts_rows(_tourney_stats.get("top_scorers",[]),  "count", "goals")
+    _assists_html  = _ts_rows(_tourney_stats.get("top_assists",[]),  "count", "assists")
+    _yellows_html  = _ts_rows(_tourney_stats.get("yellow_cards",[]), "count", "yellow")
+    _reds_html     = _ts_rows(_tourney_stats.get("red_cards",[]),    "count", "red")
+
+    st.markdown(f"""
+    <div class="ts-panel">
+        <div class="ts-card">
+            <div class="ts-card-title">⚽ TOP SCORERS</div>
+            {_scorers_html}
+        </div>
+        <div class="ts-card">
+            <div class="ts-card-title">🎯 TOP ASSISTS</div>
+            {_assists_html}
+        </div>
+        <div class="ts-card">
+            <div class="ts-card-title">🟨 YELLOW CARDS</div>
+            {_yellows_html}
+        </div>
+        <div class="ts-card">
+            <div class="ts-card-title">🟥 RED CARDS</div>
+            {_reds_html}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
 _PALETTE = [
     "#ff6b6b","#ffd43b","#69db7c","#4dabf7","#ff922b",
