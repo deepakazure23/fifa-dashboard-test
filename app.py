@@ -271,8 +271,81 @@ st.markdown("""
 }
 .flag-blank { width: 38px; height: 26px; display: inline-block; }
 
-/* ── VS / Result divider ── */
-.vs-center { min-width: 110px; text-align: center; }
+/* ── Goalscorers row under match card ── */
+.goalscorers {
+    display: flex;
+    justify-content: space-between;
+    padding: 4px 22px 10px 22px;
+    font-size: 11px;
+    color: #8090b0;
+    font-family: 'Roboto Condensed', Arial, sans-serif;
+    border-top: 1px solid rgba(255,255,255,0.05);
+    gap: 8px;
+}
+.goalscorers .gs-side {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.goalscorers .gs-side.right { text-align: right; align-items: flex-end; }
+.goalscorers .gs-goal { color: #a0b8d8; }
+.goalscorers .gs-goal .minute { color: #d4af37; font-size: 10px; }
+/* ── Top scorers widget ── */
+.top-scorers-wrap {
+    background: linear-gradient(135deg,#0a1628 0%,#0d1f3c 100%);
+    border: 1px solid #1e3a5f;
+    border-radius: 12px;
+    padding: 18px 22px 14px;
+    margin-bottom: 18px;
+}
+.top-scorers-title {
+    font-family: 'Bebas Neue', Impact, sans-serif;
+    font-size: 20px;
+    color: #d4af37;
+    letter-spacing: 3px;
+    margin-bottom: 12px;
+    text-align: center;
+}
+.ts-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+.ts-row:last-child { border-bottom: none; }
+.ts-rank {
+    font-family: 'Bebas Neue', Impact, sans-serif;
+    font-size: 18px;
+    width: 28px;
+    text-align: center;
+    color: #4dabf7;
+    flex-shrink: 0;
+}
+.ts-flag { flex-shrink: 0; }
+.ts-name {
+    flex: 1;
+    font-family: 'Roboto Condensed', Arial, sans-serif;
+    font-weight: 700;
+    font-size: 14px;
+    color: #c0c8e8;
+}
+.ts-team {
+    font-size: 11px;
+    color: #607090;
+    font-family: 'Roboto Condensed', Arial, sans-serif;
+}
+.ts-goals {
+    font-family: 'Bebas Neue', Impact, sans-serif;
+    font-size: 22px;
+    color: #80e8a8;
+    letter-spacing: 1px;
+    min-width: 32px;
+    text-align: right;
+}
+.ts-goals-label { font-size: 10px; color: #4a6a50; letter-spacing: 1px; }
+
 .vs-text {
     font-family: 'Bebas Neue', Impact, sans-serif;
     font-size: 20px;
@@ -1180,6 +1253,180 @@ def fetch_knockout_schedule():
     return sorted(_deduped, key=lambda x: x["datetime_nzt"])
 
 
+@st.cache_data(ttl=120)
+def fetch_match_goalscorers():
+    """
+    Returns dict: (team_key_a, team_key_b) → {"home": [...], "away": [...]}
+    Each list has dicts: {name, minute}
+    """
+    _out = {}
+    _now = datetime.now(NZ_TZ)
+
+    # ── FIFA match events ────────────────────────────────────────────────────
+    try:
+        _r = req.get(
+            "https://api.fifa.com/api/v3/calendar/matches?count=500&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
+            timeout=10, headers={"User-Agent": "Mozilla/5.0"}
+        )
+        if _r.status_code == 200:
+            for _ev in (_r.json().get("Results") or []):
+                def _desc(val):
+                    if isinstance(val, list) and val:
+                        v = val[0]
+                        return (v.get("Description","") if isinstance(v, dict) else str(v))
+                    if isinstance(val, dict): return val.get("Description","")
+                    return str(val) if val else ""
+                def _tname_b(b):
+                    if not isinstance(b, dict): return ""
+                    for k in ("ShortClubName","TeamName","Name"):
+                        v = b.get(k)
+                        if v:
+                            d = _desc(v)
+                            if d: return d.strip()
+                    return ""
+                _h_block = _ev.get("Home") or {}
+                _a_block = _ev.get("Away") or {}
+                _h = _norm_team(_tname_b(_h_block))
+                _a = _norm_team(_tname_b(_a_block))
+                if not _h or not _a:
+                    continue
+                _k0, _k1 = _team_key(_h), _team_key(_a)
+                _home_id = str(_h_block.get("IdTeam") or _h_block.get("TeamId") or "")
+                _home_goals, _away_goals = [], []
+                for _me in (_ev.get("MatchEvents") or []):
+                    _etype = str(_me.get("TypeId") or "")
+                    # TypeId 0=goal, 1=own goal, 2=penalty; also check text
+                    _etype_txt = str(_me.get("Type") or _me.get("EventDescription") or "").lower()
+                    if _etype not in ("0","1","2") and "goal" not in _etype_txt:
+                        continue
+                    _sraw = _me.get("Scorer") or _me.get("PlayerName") or {}
+                    if isinstance(_sraw, dict):
+                        _sname = _desc(_sraw.get("ShortName") or _sraw.get("Name") or "")
+                    else:
+                        _sname = str(_sraw)
+                    _min = str(_me.get("MatchMinute") or _me.get("Minute") or "?")
+                    _og  = "og" if _etype == "1" or "own" in _etype_txt else ""
+                    _tid = str(_me.get("TeamId") or "")
+                    _entry = {"name": _sname.strip(), "minute": _min, "og": _og}
+                    (_home_goals if (_tid == _home_id or not _tid) and _tid != "away" else _away_goals).append(_entry)
+                if _home_goals or _away_goals:
+                    _out[(_k0, _k1)] = {"home": _home_goals, "away": _away_goals}
+                    _out[(_k1, _k0)] = {"home": _away_goals, "away": _home_goals}
+    except Exception:
+        pass
+
+    # ── ESPN competition details fallback ────────────────────────────────────
+    try:
+        _espn_slugs = ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]
+        _working = None
+        for _slug in _espn_slugs:
+            _t = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_now.strftime('%Y%m%d')}",
+                         timeout=6, headers={"User-Agent":"Mozilla/5.0"})
+            if _t.status_code == 200 and _t.json().get("events") is not None:
+                _working = _slug; break
+
+        if _working:
+            _d = datetime(2026, 6, 11).date()
+            while _d <= _now.date():
+                _r = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_working}/scoreboard?dates={_d.strftime('%Y%m%d')}",
+                             timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+                if _r.status_code == 200:
+                    for _ev in (_r.json().get("events") or []):
+                        _comp  = (_ev.get("competitions") or [{}])[0]
+                        _teams = _comp.get("competitors", [])
+                        if len(_teams) < 2: continue
+                        _names = [t.get("team",{}).get("displayName","") for t in _teams]
+                        _k0 = _team_key(_norm_team(_names[0]))
+                        _k1 = _team_key(_norm_team(_names[1]))
+                        if (_k0, _k1) in _out: continue
+                        _hg, _ag = [], []
+                        for _sc in (_comp.get("details") or []):
+                            _type_txt = str(_sc.get("type",{}).get("text","")).lower()
+                            if not any(g in _type_txt for g in ("goal","penalty")): continue
+                            _scorer = ""
+                            _inv = _sc.get("athletesInvolved") or []
+                            if _inv: _scorer = _inv[0].get("displayName","")
+                            _min = _sc.get("clock",{}).get("displayValue","?")
+                            _og  = "og" if "own" in _type_txt else ""
+                            _g   = {"name": _scorer, "minute": _min, "og": _og}
+                            (_hg if _sc.get("homeAway","") == "home" else _ag).append(_g)
+                        if _hg or _ag:
+                            _out[(_k0,_k1)] = {"home": _hg, "away": _ag}
+                            _out[(_k1,_k0)] = {"home": _ag, "away": _hg}
+                _d += timedelta(days=1)
+    except Exception:
+        pass
+
+    return _out
+
+
+@st.cache_data(ttl=300)
+def fetch_top_scorers(top_n=5):
+    """Returns list of dicts: {rank, name, team, goals, flag_code}"""
+    _out = []
+
+    # ── FIFA top scorers ──────────────────────────────────────────────────────
+    for _url in [
+        "https://api.fifa.com/api/v3/topscorers?count=10&language=en&IdCompetition=17&IdSeason=278514",
+        "https://api.fifa.com/api/v3/topscorers?count=10&language=en",
+    ]:
+        try:
+            _r = req.get(_url, timeout=10, headers={"User-Agent":"Mozilla/5.0"})
+            if _r.status_code != 200: continue
+            def _desc2(val):
+                if isinstance(val,list) and val:
+                    v=val[0]; return (v.get("Description","") if isinstance(v,dict) else str(v))
+                if isinstance(val,dict): return val.get("Description","")
+                return str(val) if val else ""
+            for _p in (_r.json().get("Results") or []):
+                _name  = _desc2(_p.get("ShortName") or _p.get("Name") or "")
+                _team  = _desc2(_p.get("TeamName") or "")
+                _goals = int(_p.get("Goals") or _p.get("GoalsScored") or 0)
+                if _name and _goals:
+                    _out.append({"name":_name.strip(),"team":_norm_team(_team),
+                                 "goals":_goals,"flag_code":TEAM_FLAG_MAP.get(_norm_team(_team),"")})
+            if _out: break
+        except Exception:
+            continue
+
+    # ── ESPN leaders fallback ─────────────────────────────────────────────────
+    if not _out:
+        for _slug in ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup"]:
+            try:
+                _r = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/leaders",
+                             timeout=8, headers={"User-Agent":"Mozilla/5.0"})
+                if _r.status_code != 200: continue
+                for _cat in (_r.json().get("categories") or []):
+                    if "goal" not in str(_cat.get("name","")).lower(): continue
+                    for _e in (_cat.get("leaders") or []):
+                        _ath  = _e.get("athlete",{})
+                        _team = (_e.get("team") or {}).get("displayName","")
+                        _name = _ath.get("displayName","")
+                        _val  = int(_e.get("value",0))
+                        if _name:
+                            _out.append({"name":_name,"team":_norm_team(_team),
+                                         "goals":_val,"flag_code":TEAM_FLAG_MAP.get(_norm_team(_team),"")})
+                if _out: break
+            except Exception:
+                continue
+
+    _out.sort(key=lambda x: -x["goals"])
+    _seen_names, _deduped = set(), []
+    for _p in _out:
+        if _p["name"] not in _seen_names:
+            _seen_names.add(_p["name"])
+            _deduped.append(_p)
+
+    _ranked, _prev, _rank = [], None, 0
+    for i, _p in enumerate(_deduped[:top_n]):
+        if _p["goals"] != _prev: _rank = i + 1
+        _prev = _p["goals"]
+        _ranked.append({**_p, "rank": _rank})
+    return _ranked
+
+
+@st.cache_data(ttl=15)
+def fetch_live_scores():
     """Fetch live scores for ongoing matches.
     Tries FIFA first, then ESPN, then Scoreaxis fallback.
     Returns mapping of (team_key_a, team_key_b) -> {"home": int, "away": int, "status": str}
@@ -1502,7 +1749,9 @@ except Exception:
 _api_results, _api_scores, _api_datetimes = fetch_api_results()
 _live_scores      = fetch_live_scores()
 _api_schedule     = fetch_schedule()
-_ko_schedule      = fetch_knockout_schedule()   # Round 32+ pairings from API
+_ko_schedule      = fetch_knockout_schedule()
+_goalscorers      = fetch_match_goalscorers()
+_top_scorers      = fetch_top_scorers(5)
 try:
     _ = sync_results_to_excel(FILE_PATH, _api_results, api_scores=_api_scores, live_scores=_live_scores)
 except Exception as e:
@@ -1710,8 +1959,33 @@ def flag_html(url):
     return '<span class="flag-blank"></span>'
 
 # =========================
-# ✅ LEADERBOARD
+# ⚽ TOP SCORERS
 # =========================
+if _top_scorers:
+    _ts_rows_html = ""
+    for _ts in _top_scorers:
+        _medal = {1:"🥇",2:"🥈",3:"🥉"}.get(_ts["rank"], f'<span style="color:#4dabf7">{_ts["rank"]}</span>')
+        _fc    = _ts.get("flag_code","")
+        _flag_img = f'<img src="https://flagcdn.com/w40/{_fc}.png" style="width:28px;height:19px;object-fit:cover;border-radius:2px;border:1px solid rgba(255,255,255,0.15);" onerror="this.style.display=\'none\'">' if _fc else ""
+        _ts_rows_html += f"""
+        <div class="ts-row">
+            <div class="ts-rank">{_medal}</div>
+            <div class="ts-flag">{_flag_img}</div>
+            <div style="flex:1">
+                <div class="ts-name">{_ts["name"]}</div>
+                <div class="ts-team">{_ts["team"]}</div>
+            </div>
+            <div style="text-align:right">
+                <div class="ts-goals">{_ts["goals"]}</div>
+                <div class="ts-goals-label">GOALS</div>
+            </div>
+        </div>"""
+    st.markdown(f"""
+    <div class="top-scorers-wrap">
+        <div class="top-scorers-title">⚽ TOP SCORERS</div>
+        {_ts_rows_html}
+    </div>
+    """, unsafe_allow_html=True)
 
 # =========================
 # ✅ LEADERBOARD
@@ -2049,6 +2323,22 @@ else:
         elif status in ("Finished", "Result Pending"): card_cls = "match-card finished"
         else: card_cls = "match-card"
 
+        # ── Goalscorers ───────────────────────────────────────────────────────
+        _gs_data   = (_goalscorers.get((k1, k2)) or _goalscorers.get((k2, k1))) if '_goalscorers' in globals() else None
+        _gs_html   = ""
+        if _gs_data and status in ("Finished", "LIVE"):
+            def _gs_line(goals, align="left"):
+                if not goals: return '<div class="gs-side"></div>'
+                lines = "".join(
+                    f'<div class="gs-goal">⚽ {g["name"]}{" (OG)" if g.get("og") else ""} <span class="minute">{g["minute"]}\'</span></div>'
+                    for g in goals if g.get("name")
+                )
+                return f'<div class="gs-side{"" if align=="left" else " right"}">{lines}</div>'
+            _home_gs = _gs_data.get("home", [])
+            _away_gs = _gs_data.get("away", [])
+            if _home_gs or _away_gs:
+                _gs_html = f'<div class="goalscorers">{_gs_line(_home_gs)}{_gs_line(_away_gs, "right")}</div>'
+
         st.markdown(f"""
         <div class="{card_cls}">
             <div class="match-inner">
@@ -2068,6 +2358,7 @@ else:
                     {badge_map[status]}
                 </div>
             </div>
+            {_gs_html}
         </div>
         """, unsafe_allow_html=True)
 
