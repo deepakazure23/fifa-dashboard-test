@@ -246,109 +246,86 @@ st.markdown("""
 .match-inner {
     display: flex;
     align-items: center;
-    padding: 13px 22px;
-    gap: 10px;
+    padding: 12px 18px;
+    gap: 6px;
 }
-.team-left  { display: flex; align-items: center; gap: 10px; flex: 2; min-width: 0; }
-.team-right { display: flex; align-items: center; gap: 10px; flex: 2; justify-content: flex-end; min-width: 0; }
+/* Fixed-width team blocks so goalscorer columns get the remaining space */
+.team-left  { display: flex; align-items: center; gap: 8px; flex-shrink: 0; width: 150px; }
+.team-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; width: 150px; justify-content: flex-end; }
 .team-name {
     font-family: 'Roboto Condensed', Arial, sans-serif;
     font-weight: 700;
-    font-size: 16px;
+    font-size: 15px;
     color: #c0c8e8;
     transition: color 0.2s;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
-.team-name.winner { color: #ffd700; text-shadow: 0 0 14px rgba(255,215,0,0.45); font-size: 17px; }
+.team-name.winner { color: #ffd700; text-shadow: 0 0 14px rgba(255,215,0,0.45); }
 .team-name.loser  { color: #3a4560; }
 .flag-img {
-    width: 38px;
-    height: 26px;
+    width: 32px; height: 22px;
     object-fit: cover;
-    border-radius: 3px;
+    border-radius: 2px;
     border: 1px solid rgba(255,255,255,0.18);
     flex-shrink: 0;
-    display: inline-block;
 }
-.flag-blank { width: 38px; height: 26px; display: inline-block; flex-shrink: 0; }
+.flag-blank { width: 32px; height: 22px; display: inline-block; flex-shrink: 0; }
+
+/* Goalscorer columns — inline in the same row, between team and score */
+.gs-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    justify-content: center;
+}
+.gs-col.right { align-items: flex-end; }
+.gs-entry {
+    font-size: 11px;
+    color: #7888a8;
+    font-family: 'Roboto Condensed', Arial, sans-serif;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+.gs-col.right .gs-entry { flex-direction: row-reverse; }
+.gs-entry .gs-ball  { font-size: 10px; flex-shrink: 0; }
+.gs-entry .gs-name  { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.gs-entry .gs-min   { color: #d4af37; font-size: 10px; font-weight: 700; flex-shrink: 0; }
 
 /* ── VS / Score centre ── */
-.vs-center {
-    min-width: 160px;
-    max-width: 200px;
-    text-align: center;
-    flex-shrink: 0;
-}
-.vs-text {
-    font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 20px;
-    color: #d4af37;
-    line-height: 1;
-}
+.vs-center { width: 160px; flex-shrink: 0; text-align: center; }
+.vs-text { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 20px; color: #d4af37; line-height: 1; }
 .result-win {
     font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 11px;
-    color: #80e8a8;
-    line-height: 1.35;
-    letter-spacing: 1px;
+    font-size: 11px; color: #80e8a8; line-height: 1.35; letter-spacing: 1px;
 }
 .result-win.score-line {
-    font-size: 28px;
-    letter-spacing: 4px;
-    color: #80e8a8;
+    font-size: 28px; letter-spacing: 4px; color: #80e8a8;
     text-shadow: 0 0 18px rgba(128,232,168,0.35);
 }
 .result-draw {
     font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 28px;
-    color: #90c8ff;
-    letter-spacing: 4px;
-    line-height: 1.2;
-    text-align: center;
+    font-size: 28px; color: #90c8ff; letter-spacing: 4px;
+    line-height: 1.2; text-align: center;
     text-shadow: 0 0 14px rgba(144,200,255,0.3);
 }
 .live-pulse {
     font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 18px;
-    color: #ff4444;
+    font-size: 18px; color: #ff4444; letter-spacing: 2px;
     animation: blinker 1.2s linear infinite;
-    letter-spacing: 2px;
 }
 
-/* ── Match meta (right side) ── */
-.match-meta { min-width: 175px; text-align: right; flex-shrink: 0; }
+/* ── Match meta (rightmost) ── */
+.match-meta { flex-shrink: 0; min-width: 175px; text-align: right; }
 .match-date { font-size: 13px; font-weight: 600; color: #b8c4e8; }
-
-/* ── Goalscorers — below the main card row ── */
-.goalscorers {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    padding: 6px 80px 10px 80px;
-    border-top: 1px solid rgba(255,255,255,0.06);
-    gap: 20px;
-}
-.gs-col {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-}
-.gs-col.right { align-items: flex-end; text-align: right; }
-.gs-entry {
-    font-size: 12px;
-    color: #8896b0;
-    font-family: 'Roboto Condensed', Arial, sans-serif;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    white-space: nowrap;
-}
-.gs-col.right .gs-entry { flex-direction: row-reverse; }
-.gs-entry .gs-ball { font-size: 11px; }
-.gs-entry .gs-min { color: #d4af37; font-size: 10px; font-weight: 600; }
 
 /* ── Status badges ── */
 .badge {
@@ -1170,25 +1147,30 @@ def fetch_match_goalscorers():
                 if not _h or not _a: continue
                 _k0, _k1 = _team_key(_h), _team_key(_a)
                 _home_id = str(_h_blk.get("IdTeam") or _h_blk.get("TeamId") or "")
-                _hg, _ag = [], []
+                _away_id = str(_a_blk.get("IdTeam") or _a_blk.get("TeamId") or "")
+                # Store by team key — safe even when TeamId is missing
+                _by_team = {_k0: [], _k1: []}
                 for _me in (_ev.get("MatchEvents") or []):
                     _tid  = str(_me.get("IdTeam") or _me.get("TeamId") or "")
                     _type = str(_me.get("TypeId") or _me.get("Type") or "")
                     _txt  = str(_me.get("EventDescription") or _me.get("TypeName") or "").lower()
-                    # TypeId: 0=goal, 1=own goal, 2=penalty; ignore cards etc
                     if _type not in ("0","1","2") and "goal" not in _txt: continue
                     _og   = _type == "1" or "own" in _txt
                     _sraw = _me.get("Scorer") or _me.get("PlayerName") or {}
-                    if isinstance(_sraw, dict):
-                        _sname = _d(_sraw.get("ShortName") or _sraw.get("Name") or "")
-                    else:
-                        _sname = str(_sraw)
-                    _min  = str(_me.get("MatchMinute") or _me.get("Minute") or "?")
+                    _sname = _d(_sraw.get("ShortName") or _sraw.get("Name") or "") if isinstance(_sraw, dict) else str(_sraw)
+                    _min   = str(_me.get("MatchMinute") or _me.get("Minute") or "?")
                     _entry = {"name": _sname.strip(), "minute": _min, "og": _og}
-                    (_hg if _tid == _home_id else _ag).append(_entry)
-                if _hg or _ag:
-                    _out[(_k0,_k1)] = {"home": _hg, "away": _ag}
-                    _out[(_k1,_k0)] = {"home": _ag, "away": _hg}
+                    if _tid == _home_id and _home_id:
+                        _by_team[_k0].append(_entry)
+                    elif _tid == _away_id and _away_id:
+                        _by_team[_k1].append(_entry)
+                    else:
+                        # TeamId unknown — skip (will be filled by ESPN fallback)
+                        pass
+                if any(_by_team.values()):
+                    # Store keyed by (team_a, team_b) → goals_for_each_team_key
+                    _out[(_k0,_k1)] = {"t1": _by_team[_k0], "t2": _by_team[_k1],
+                                       "k1": _k0, "k2": _k1}
     except Exception:
         pass
 
@@ -1215,7 +1197,12 @@ def fetch_match_goalscorers():
                         _k0 = _team_key(_norm_team(_names[0]))
                         _k1 = _team_key(_norm_team(_names[1]))
                         if (_k0,_k1) in _out: continue
-                        _hg, _ag = [], []
+                        # ESPN: competitors[0] is not always home — use homeAway field
+                        _ha_map = {}  # "home"/"away" → team_key
+                        for _t in _teams:
+                            _tkey = _team_key(_norm_team(_t.get("team",{}).get("displayName","")))
+                            _ha_map[_t.get("homeAway","").lower()] = _tkey
+                        _by_team = {_k0: [], _k1: []}
                         for _sc in (_comp.get("details") or []):
                             _txt2 = str(_sc.get("type",{}).get("text","")).lower()
                             if not any(g in _txt2 for g in ("goal","penalty")): continue
@@ -1223,11 +1210,14 @@ def fetch_match_goalscorers():
                             _sn   = _inv[0].get("displayName","") if _inv else ""
                             _min2 = _sc.get("clock",{}).get("displayValue","?")
                             _og2  = "own" in _txt2
-                            _g    = {"name":_sn,"minute":_min2,"og":_og2}
-                            (_hg if _sc.get("homeAway","")=="home" else _ag).append(_g)
-                        if _hg or _ag:
-                            _out[(_k0,_k1)] = {"home":_hg,"away":_ag}
-                            _out[(_k1,_k0)] = {"home":_ag,"away":_hg}
+                            _scorer_ha = _sc.get("homeAway","").lower()
+                            _scorer_key = _ha_map.get(_scorer_ha, _k0)
+                            _g = {"name":_sn,"minute":_min2,"og":_og2}
+                            if _scorer_key in _by_team:
+                                _by_team[_scorer_key].append(_g)
+                        if any(_by_team.values()):
+                            _out[(_k0,_k1)] = {"t1":_by_team[_k0],"t2":_by_team[_k1],
+                                               "k1":_k0,"k2":_k1}
                 _d2 += timedelta(days=1)
     except Exception:
         pass
@@ -1322,7 +1312,8 @@ def fetch_player_stats():
 
     def _to_list(d, top=5):
         rows = [{"name":n,"team":v["team"],"count":v["count"],
-                 "flag_code":TEAM_FLAG_MAP.get(v["team"],"")} for n,v in d.items()]
+                 "flag_code":TEAM_FLAG_MAP.get(v["team"],""),
+                 "photo": v.get("photo","")} for n,v in d.items()]
         rows.sort(key=lambda x: -x["count"])
         return rows[:top]
 
@@ -1330,6 +1321,101 @@ def fetch_player_stats():
     _result["top_assists"]   = _to_list(_assisters)
     _result["yellow_cards"]  = _to_list(_yellows)
     _result["red_cards"]     = _to_list(_reds)
+
+    # ── ESPN leaders — primary source (works reliably from Streamlit Cloud) ──
+    # Only replace FIFA data if FIFA returned nothing
+    _espn_slugs = ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]
+    _slug = None
+    for _s in _espn_slugs:
+        try:
+            _t = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_s}/scoreboard?dates={_now.strftime('%Y%m%d')}",
+                         timeout=6, headers={"User-Agent":"Mozilla/5.0"})
+            if _t.status_code == 200 and _t.json().get("events") is not None:
+                _slug = _s; break
+        except Exception:
+            continue
+
+    if _slug:
+        # Fetch scorers + yellow/red from ESPN competition stats endpoint
+        # We build from match events since ESPN /leaders may not be available
+        _espn_scorers  = {}
+        _espn_assists  = {}
+        _espn_yellows  = {}
+        _espn_reds     = {}
+
+        _d3 = datetime(2026, 6, 11).date()
+        while _d3 <= _now.date():
+            try:
+                _r3 = req.get(
+                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_d3.strftime('%Y%m%d')}",
+                    timeout=8, headers={"User-Agent":"Mozilla/5.0"}
+                )
+                if _r3.status_code == 200:
+                    for _ev3 in (_r3.json().get("events") or []):
+                        _comp3 = (_ev3.get("competitions") or [{}])[0]
+                        # Team names for flag lookup
+                        _team_by_ha = {}
+                        for _tc in (_comp3.get("competitors") or []):
+                            _ha3 = _tc.get("homeAway","")
+                            _tn3 = _norm_team(_tc.get("team",{}).get("displayName",""))
+                            _team_by_ha[_ha3] = _tn3
+                        for _sc3 in (_comp3.get("details") or []):
+                            _txt3 = str(_sc3.get("type",{}).get("text","")).lower()
+                            _inv3 = _sc3.get("athletesInvolved") or []
+                            _ha3  = _sc3.get("homeAway","")
+                            _team3 = _team_by_ha.get(_ha3,"")
+                            _fc3   = TEAM_FLAG_MAP.get(_team3,"")
+                            # Get athlete photo
+                            _photo3 = ""
+                            if _inv3:
+                                _ath3 = _inv3[0]
+                                _photo3 = _ath3.get("headshot",{}).get("href","") if isinstance(_ath3.get("headshot"),dict) else ""
+                                if not _photo3:
+                                    _photo3 = f"https://a.espncdn.com/combiner/i?img=/i/headshots/soccer/players/full/{_ath3.get('id','')}.png&w=96&h=70"
+
+                            if "goal" in _txt3 or "penalty" in _txt3:
+                                if _inv3:
+                                    _pn3 = _inv3[0].get("displayName","")
+                                    if _pn3:
+                                        if _pn3 not in _espn_scorers:
+                                            _espn_scorers[_pn3] = {"team":_team3,"count":0,"flag_code":_fc3,"photo":_photo3}
+                                        _espn_scorers[_pn3]["count"] += 1
+                                # Assist = second athlete
+                                if len(_inv3) > 1 and "own" not in _txt3:
+                                    _an3 = _inv3[1].get("displayName","")
+                                    if _an3:
+                                        _ap3 = _inv3[1].get("headshot",{}).get("href","") if isinstance(_inv3[1].get("headshot"),dict) else ""
+                                        if not _ap3:
+                                            _ap3 = f"https://a.espncdn.com/combiner/i?img=/i/headshots/soccer/players/full/{_inv3[1].get('id','')}.png&w=96&h=70"
+                                        if _an3 not in _espn_assists:
+                                            _espn_assists[_an3] = {"team":_team3,"count":0,"flag_code":_fc3,"photo":_ap3}
+                                        _espn_assists[_an3]["count"] += 1
+
+                            if "yellow card" in _txt3:
+                                if _inv3:
+                                    _pn3 = _inv3[0].get("displayName","")
+                                    if _pn3:
+                                        if _pn3 not in _espn_yellows:
+                                            _espn_yellows[_pn3] = {"team":_team3,"count":0,"flag_code":_fc3,"photo":_photo3}
+                                        _espn_yellows[_pn3]["count"] += 1
+
+                            if "red card" in _txt3:
+                                if _inv3:
+                                    _pn3 = _inv3[0].get("displayName","")
+                                    if _pn3:
+                                        if _pn3 not in _espn_reds:
+                                            _espn_reds[_pn3] = {"team":_team3,"count":0,"flag_code":_fc3,"photo":_photo3}
+                                        _espn_reds[_pn3]["count"] += 1
+            except Exception:
+                pass
+            _d3 += timedelta(days=1)
+
+        # Prefer ESPN data (has photos) over FIFA data
+        if _espn_scorers:  _result["top_scorers"]  = _to_list(_espn_scorers)
+        if _espn_assists:  _result["top_assists"]   = _to_list(_espn_assists)
+        if _espn_yellows:  _result["yellow_cards"]  = _to_list(_espn_yellows)
+        if _espn_reds:     _result["red_cards"]     = _to_list(_espn_reds)
+
     return _result
 
 
@@ -1914,54 +2000,48 @@ leaderboard["Accuracy"] = (leaderboard["Points"] / leaderboard["Matches"] * 100)
 st.markdown('<div class="section-title">🏆 Leaderboard</div>', unsafe_allow_html=True)
 
 # ── Tournament Stats + Top Scorers panel ────────────────────────────────────
-def _ts_rows(items, val_key="count", val_cls="goals"):
-    """Render 5 rows of a stat list."""
-    medals = {1:"🥇",2:"🥈",3:"🥉"}
-    pos_cls = {1:"gold",2:"silver",3:"bronze"}
-    rows = ""
+def _ts_rows(items, val_cls="goals"):
+    medals  = {1:"🥇", 2:"🥈", 3:"🥉"}
+    p_cls   = {1:"gold", 2:"silver", 3:"bronze"}
+    rows, prev, rank = "", None, 0
     for i, p in enumerate(items[:5], 1):
-        _fc   = p.get("flag_code","")
-        _flag = f'<img src="https://flagcdn.com/w40/{_fc}.png" onerror="this.style.display=\'none\'">' if _fc else ""
-        _pos  = medals.get(i, str(i))
-        _pcls = pos_cls.get(i, "")
+        if p.get("count") != prev: rank = i
+        prev = p.get("count")
+        _fc     = p.get("flag_code","")
+        _flag   = f'<img src="https://flagcdn.com/w40/{_fc}.png" style="width:22px;height:15px;object-fit:cover;border-radius:2px;border:1px solid rgba(255,255,255,0.15);" onerror="this.style.display=\'none\'">' if _fc else ""
+        _photo  = p.get("photo","")
+        _ph_el  = (
+            f'<img src="{_photo}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid #1e3a5f;flex-shrink:0;" onerror="this.style.display=\'none\'">' 
+            if _photo else
+            '<div style="width:38px;height:38px;border-radius:50%;background:#0d1b30;border:2px solid #1e3a5f;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;">👤</div>'
+        )
+        _medal  = medals.get(rank, f'<span style="color:#4dabf7;font-family:Bebas Neue,Impact,sans-serif;font-size:15px">{rank}</span>')
         rows += f"""
         <div class="ts-row">
-            <div class="ts-pos {_pcls}">{_pos}</div>
+            <div class="ts-pos {p_cls.get(rank,"")}">{_medal}</div>
+            {_ph_el}
             <div class="ts-flag-sm">{_flag}</div>
             <div class="ts-info">
                 <div class="ts-name-sm">{p.get("name","")}</div>
                 <div class="ts-team-sm">{p.get("team","")}</div>
             </div>
-            <div style="text-align:right">
-                <div class="ts-val {val_cls}">{p.get(val_key,0)}</div>
+            <div style="text-align:right;flex-shrink:0">
+                <div class="ts-val {val_cls}">{p.get("count",0)}</div>
             </div>
         </div>"""
-    return rows or '<div style="color:#506080;font-size:12px;padding:8px 0">No data yet</div>'
+    return rows or '<div style="color:#506080;font-size:12px;padding:10px 4px">Loading from API…</div>'
 
 if _tourney_stats:
-    _scorers_html  = _ts_rows(_tourney_stats.get("top_scorers",[]),  "count", "goals")
-    _assists_html  = _ts_rows(_tourney_stats.get("top_assists",[]),  "count", "assists")
-    _yellows_html  = _ts_rows(_tourney_stats.get("yellow_cards",[]), "count", "yellow")
-    _reds_html     = _ts_rows(_tourney_stats.get("red_cards",[]),    "count", "red")
-
+    _s_html = _ts_rows(_tourney_stats.get("top_scorers",[]),  "goals")
+    _a_html = _ts_rows(_tourney_stats.get("top_assists",[]),  "assists")
+    _y_html = _ts_rows(_tourney_stats.get("yellow_cards",[]), "yellow")
+    _r_html = _ts_rows(_tourney_stats.get("red_cards",[]),    "red")
     st.markdown(f"""
     <div class="ts-panel">
-        <div class="ts-card">
-            <div class="ts-card-title">⚽ TOP SCORERS</div>
-            {_scorers_html}
-        </div>
-        <div class="ts-card">
-            <div class="ts-card-title">🎯 TOP ASSISTS</div>
-            {_assists_html}
-        </div>
-        <div class="ts-card">
-            <div class="ts-card-title">🟨 YELLOW CARDS</div>
-            {_yellows_html}
-        </div>
-        <div class="ts-card">
-            <div class="ts-card-title">🟥 RED CARDS</div>
-            {_reds_html}
-        </div>
+        <div class="ts-card"><div class="ts-card-title">⚽ TOP SCORERS</div>{_s_html}</div>
+        <div class="ts-card"><div class="ts-card-title">🎯 TOP ASSISTS</div>{_a_html}</div>
+        <div class="ts-card"><div class="ts-card-title">🟨 YELLOW CARDS</div>{_y_html}</div>
+        <div class="ts-card"><div class="ts-card-title">🟥 RED CARDS</div>{_r_html}</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -2223,25 +2303,43 @@ else:
         elif status in ("Finished", "Result Pending"): card_cls = "match-card finished"
         else: card_cls = "match-card"
 
-        # ── Goalscorers ───────────────────────────────────────────────────────
+        # ── Goalscorers — keyed by team_key, not home/away ──────────────────
         _gs_data = None
         if '_goalscorers' in globals():
             _gs_data = _goalscorers.get((k1, k2)) or _goalscorers.get((k2, k1))
-        _gs_html = ""
-        if _gs_data and status in ("Finished", "LIVE"):
-            def _render_gs_col(goals, side="left"):
-                if not goals:
-                    return f'<div class="gs-col{"" if side=="left" else " right"}"></div>'
-                items = ""
-                for g in goals:
-                    if not g.get("name"): continue
-                    og_tag = ' <span style="color:#ff7070;font-size:9px">(OG)</span>' if g.get("og") else ""
-                    items += f'<div class="gs-entry"><span class="gs-ball">⚽</span><span>{g["name"]}{og_tag}</span><span class="gs-min">{g["minute"]}\'</span></div>'
-                return f'<div class="gs-col{"" if side=="left" else " right"}">{items}</div>'
-            _hg = _gs_data.get("home", [])
-            _ag = _gs_data.get("away", [])
-            if _hg or _ag:
-                _gs_html = f'<div class="goalscorers">{_render_gs_col(_hg,"left")}{_render_gs_col(_ag,"right")}</div>'
+
+        def _gs_col(goals, side="left"):
+            cls = "gs-col" if side == "left" else "gs-col right"
+            if not goals:
+                return f'<div class="{cls}"></div>'
+            items = ""
+            for g in goals:
+                if not g.get("name"): continue
+                og = ' <span style="color:#ff7070;font-size:9px">(OG)</span>' if g.get("og") else ""
+                items += (
+                    f'<div class="gs-entry">'
+                    f'<span class="gs-ball">⚽</span>'
+                    f'<span class="gs-name">{g["name"]}{og}</span>'
+                    f'<span class="gs-min">{g["minute"]}\'</span>'
+                    f'</div>'
+                )
+            return f'<div class="{cls}">{items}</div>'
+
+        _show_gs = bool(_gs_data and status in ("Finished", "LIVE"))
+        if _show_gs and _gs_data:
+            _stored_k1 = _gs_data.get("k1", k1)
+            # Match left column to team1, right to team2 by comparing stored keys
+            if _stored_k1 == k1:
+                _hg = _gs_data.get("t1", [])
+                _ag = _gs_data.get("t2", [])
+            else:
+                _hg = _gs_data.get("t2", [])
+                _ag = _gs_data.get("t1", [])
+        else:
+            _hg, _ag = [], []
+
+        _gs_left  = _gs_col(_hg, "left")  if _show_gs else '<div class="gs-col"></div>'
+        _gs_right = _gs_col(_ag, "right") if _show_gs else '<div class="gs-col right"></div>'
 
         st.markdown(f"""
         <div class="{card_cls}">
@@ -2250,9 +2348,11 @@ else:
                     {f1}
                     <span class="team-name {t1_cls}">{team1}</span>
                 </div>
+                {_gs_left}
                 <div class="vs-center">
                     {score_html}
                 </div>
+                {_gs_right}
                 <div class="team-right">
                     <span class="team-name {t2_cls}">{team2}</span>
                     {f2}
@@ -2261,7 +2361,7 @@ else:
                     <div class="match-date">{time_str}</div>
                     {badge_map[status]}
                 </div>
-            </div>{_gs_html}
+            </div>
         </div>
         """, unsafe_allow_html=True)
 
