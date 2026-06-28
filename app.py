@@ -1025,8 +1025,161 @@ def fetch_schedule():
     return _out
 
 
-@st.cache_data(ttl=15)
-def fetch_live_scores():
+@st.cache_data(ttl=300)   # refresh every 5 min — knockout brackets change as teams qualify
+def fetch_knockout_schedule():
+    """
+    Fetch Round of 32 and beyond match pairings + results directly from the API.
+    Returns list of dicts: {team1, team2, datetime_nzt, result, score}
+    Only returns matches that have actual team names (not TBD/placeholder).
+    """
+    _matches = []
+    _now = datetime.now(NZ_TZ)
+    _ko_start = datetime(2026, 6, 28, tzinfo=NZ_TZ)   # knockout stage starts Jun 28 NZT
+
+    # ── Source 1: FIFA full calendar — all phases ────────────────────────────
+    _fifa_urls = [
+        "https://api.fifa.com/api/v3/calendar/matches?count=500&from=2026-06-28T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
+    ]
+    def _first_desc(val):
+        if isinstance(val, list) and val:
+            v = val[0]
+            return (v.get("Description") or v.get("Name") or v.get("Text") or "") if isinstance(v, dict) else str(v)
+        if isinstance(val, dict):
+            return val.get("Description") or val.get("Name") or val.get("Text") or ""
+        return str(val) if val else ""
+
+    def _tname(block):
+        if not isinstance(block, dict): return ""
+        for k in ("ShortClubName", "TeamName", "Name", "Abbreviation"):
+            v = block.get(k)
+            if v:
+                d = _first_desc(v)
+                if d and d not in ("TBD", "TBA", "?", ""): return d.strip()
+        return ""
+
+    def _is_real(name):
+        return bool(name) and name.upper() not in ("TBD", "TBA", "?", "WINNER", "LOSER")
+
+    def _score_from_ev(ev):
+        try:
+            hs = ev.get("HomeTeamScore") or ev.get("Home", {}).get("Score")
+            as_ = ev.get("AwayTeamScore") or ev.get("Away", {}).get("Score")
+            if hs is not None and as_ is not None:
+                return (int(hs), int(as_))
+        except Exception:
+            pass
+        return None
+
+    def _winner_from_ev(ev, h, a, sc):
+        status = str(ev.get("MatchStatus") or ev.get("MatchStatusId") or "").lower()
+        if "finish" in status or status in ("0", "finished", "ft"):
+            if sc:
+                return h if sc[0] > sc[1] else a if sc[1] > sc[0] else "Draw"
+        return None
+
+    for _url in _fifa_urls:
+        try:
+            _r = req.get(_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
+            if _r.status_code != 200:
+                continue
+            for _ev in (_r.json().get("Results") or []):
+                _h, _a = _tname(_ev.get("Home")), _tname(_ev.get("Away"))
+                if not _is_real(_h) or not _is_real(_a):
+                    continue
+                _dt_nzt = None
+                for _dk in ("Date", "MatchDateTime", "LocalDate", "UtcDate", "DateUtc", "KickOffTime"):
+                    _dv = _ev.get(_dk)
+                    if _dv:
+                        try:
+                            _dt_nzt = datetime.fromisoformat(str(_dv).replace("Z", "+00:00")).astimezone(NZ_TZ)
+                            break
+                        except Exception:
+                            pass
+                if _dt_nzt is None or _dt_nzt < _ko_start:
+                    continue
+                _sc = _score_from_ev(_ev)
+                _w  = _winner_from_ev(_ev, _norm_team(_h), _norm_team(_a), _sc)
+                _matches.append({
+                    "team1": _norm_team(_h), "team2": _norm_team(_a),
+                    "datetime_nzt": _dt_nzt, "result": _w,
+                    "score": _sc,
+                })
+            if _matches:
+                break
+        except Exception:
+            continue
+
+    # ── Source 2: ESPN scoreboard for each knockout date ─────────────────────
+    if not _matches:
+        _espn_slugs = ["fifa.worldcup", "fifa.world", "global.2026-fifa-world-cup", "fifa.worldcup.2026"]
+        _working_slug = None
+        for _slug in _espn_slugs:
+            try:
+                _t = req.get(
+                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_now.strftime('%Y%m%d')}",
+                    timeout=6, headers={"User-Agent": "Mozilla/5.0"}
+                )
+                if _t.status_code == 200 and _t.json().get("events") is not None:
+                    _working_slug = _slug
+                    break
+            except Exception:
+                continue
+
+        if _working_slug:
+            _d = datetime(2026, 6, 28).date()
+            while _d <= datetime(2026, 7, 20).date():
+                try:
+                    _r = req.get(
+                        f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_working_slug}/scoreboard?dates={_d.strftime('%Y%m%d')}",
+                        timeout=8, headers={"User-Agent": "Mozilla/5.0"}
+                    )
+                    if _r.status_code == 200:
+                        for _ev in (_r.json().get("events") or []):
+                            _comp   = (_ev.get("competitions") or [{}])[0]
+                            _teams  = _comp.get("competitors", [])
+                            if len(_teams) < 2: continue
+                            _names  = [t.get("team", {}).get("displayName", "") for t in _teams]
+                            _scores = []
+                            for _t in _teams:
+                                try: _scores.append(int(_t.get("score", 0) or 0))
+                                except: _scores.append(0)
+                            if not _is_real(_names[0]) or not _is_real(_names[1]):
+                                continue
+                            _raw_dt = _ev.get("date") or _comp.get("date")
+                            _dt_nzt = None
+                            if _raw_dt:
+                                try:
+                                    _dt_nzt = datetime.fromisoformat(str(_raw_dt).replace("Z", "+00:00")).astimezone(NZ_TZ)
+                                except Exception:
+                                    pass
+                            if _dt_nzt is None or _dt_nzt < _ko_start:
+                                continue
+                            _status = _comp.get("status", {}).get("type", {})
+                            _done   = bool(_status.get("completed", False) or _status.get("state") == "post")
+                            _sc     = (_scores[0], _scores[1]) if _done and _scores else None
+                            _n0, _n1 = _norm_team(_names[0]), _norm_team(_names[1])
+                            _w      = (_n0 if _scores[0] > _scores[1] else _n1 if _scores[1] > _scores[0] else "Draw") if _done else None
+                            _matches.append({
+                                "team1": _n0, "team2": _n1,
+                                "datetime_nzt": _dt_nzt, "result": _w,
+                                "score": _sc,
+                            })
+                except Exception:
+                    pass
+                _d += timedelta(days=1)
+
+    # Deduplicate by team pair
+    _seen = set()
+    _deduped = []
+    for _m in _matches:
+        _key = tuple(sorted([_team_key(_m["team1"]), _team_key(_m["team2"])]))
+        if _key not in _seen:
+            _seen.add(_key)
+            _deduped.append(_m)
+
+    return sorted(_deduped, key=lambda x: x["datetime_nzt"])
+
+
     """Fetch live scores for ongoing matches.
     Tries FIFA first, then ESPN, then Scoreaxis fallback.
     Returns mapping of (team_key_a, team_key_b) -> {"home": int, "away": int, "status": str}
@@ -1347,8 +1500,9 @@ except Exception:
     _mtime = 0
 
 _api_results, _api_scores, _api_datetimes = fetch_api_results()
-_live_scores  = fetch_live_scores()
-_api_schedule = fetch_schedule()   # authoritative kick-off times for ALL matches
+_live_scores      = fetch_live_scores()
+_api_schedule     = fetch_schedule()
+_ko_schedule      = fetch_knockout_schedule()   # Round 32+ pairings from API
 try:
     _ = sync_results_to_excel(FILE_PATH, _api_results, api_scores=_api_scores, live_scores=_live_scores)
 except Exception as e:
@@ -1404,6 +1558,42 @@ try:
             if sc:
                 _df_copy.at[idx, "Score"] = f"{sc[0]}-{sc[1]}"
     df = _df_copy
+except Exception:
+    pass
+
+# ── Merge Round 32+ API schedule into df ─────────────────────────────────────
+# For each API knockout match:
+#   1. If an Excel row has the same team pair → update its DateTime/Date/Result/Score
+#   2. If an Excel row has TBD teams for that slot → fill in the team names + datetime
+#   3. Track which API matches have no Excel row so they can be shown in the schedule
+try:
+    _ko_api_keys = set()   # track which API matches are already reflected in df
+    for _km in _ko_schedule:
+        _k1 = _team_key(_km["team1"])
+        _k2 = _team_key(_km["team2"])
+        _ko_api_keys.add((_k1, _k2))
+
+        # Search for matching row in df (by team keys)
+        for idx, _row in df.iterrows():
+            _r1 = _team_key(str(_row.get("Team 1", "") or ""))
+            _r2 = _team_key(str(_row.get("Team 2", "") or ""))
+            _matched = ((_r1 == _k1 and _r2 == _k2) or (_r1 == _k2 and _r2 == _k1))
+            _tbd_slot = _r1 in ("tbd", "tba", "", "nan") or _r2 in ("tbd", "tba", "", "nan")
+
+            if _matched or _tbd_slot:
+                if _tbd_slot:
+                    df.at[idx, "Team 1"] = _km["team1"]
+                    df.at[idx, "Team 2"] = _km["team2"]
+                dt_val = _km.get("datetime_nzt")
+                if dt_val:
+                    df.at[idx, "DateTime"]    = dt_val
+                    df.at[idx, "Date (NZDT)"] = pd.Timestamp(dt_val.date())
+                if _km.get("result") and (pd.isna(df.at[idx, "Result"]) or str(df.at[idx, "Result"]).strip() == ""):
+                    df.at[idx, "Result"] = _km["result"]
+                if _km.get("score") and (pd.isna(df.at[idx, "Score"]) if "Score" in df.columns else True):
+                    sc = _km["score"]
+                    df.at[idx, "Score"] = f"{sc[0]}-{sc[1]}"
+                break   # found the row, move to next API match
 except Exception:
     pass
 
@@ -1523,12 +1713,23 @@ def flag_html(url):
 # ✅ LEADERBOARD
 # =========================
 
-completed_matches = int(df["Result"].notna().sum())
-valid_matches = df[df["Team 1"].notna() & df["Team 2"].notna()]
-total_matches = len(valid_matches)
-completed_matches = valid_matches["Result"].notna().sum()
+# =========================
+# ✅ LEADERBOARD
+# =========================
+
+# Use the fully API-patched df for all stats so counts reflect API results, not just Excel
+valid_matches     = df[df["Team 1"].notna() & df["Team 2"].notna()]
+total_matches     = len(valid_matches)
+completed_matches = int(valid_matches["Result"].notna().sum())
 remaining_matches = total_matches - completed_matches
-player_count = len([c for c in df.columns if "Pick" in c])
+player_count      = len([c for c in df.columns if "Pick" in c])
+
+# Round labels — Round 1 = group stage (matches 1–72), Round 2 = knockout (73+)
+_round1_total      = min(72, total_matches)
+_round2_start_idx  = _round1_total   # 0-based in valid_matches
+_round2_matches    = valid_matches.iloc[_round2_start_idx:]
+_round2_completed  = int(_round2_matches["Result"].notna().sum())
+_round2_remaining  = len(_round2_matches) - _round2_completed
 st.markdown(f"""
 <div class="stat-row">
     <div class="stat-card" data-icon="🏟️">
@@ -1544,7 +1745,7 @@ st.markdown(f"""
     <div class="stat-card" data-icon="⏳">
         <div class="stat-label">Remaining</div>
         <div class="stat-value orange">{remaining_matches}</div>
-        <div class="stat-sublabel">To Be Played</div>
+        <div class="stat-sublabel">Round of 32 — {_round2_remaining} to play</div>
     </div>
     <div class="stat-card" data-icon="👥">
         <div class="stat-label">Players</div>
@@ -1932,17 +2133,31 @@ st.dataframe(
 # =========================
 st.markdown('<div class="section-title">⚠️ Missing Picks</div>', unsafe_allow_html=True)
 
-stage1  = df.head(72)
-missing = []
+# Round 1 (group stage) is matches 1–72; Round 2 (knockout) is 73+
+_gs_matches  = valid_matches.iloc[:72]           # group stage rows
+_ko_matches  = valid_matches.iloc[72:]           # knockout rows
+_gs_played   = int(_gs_matches["Result"].notna().sum())
+_ko_played   = int(_ko_matches["Result"].notna().sum())
 
+# Show which round we're checking picks for
+_check_total = min(72, total_matches)   # cap at group stage for now
+_round_label = f"Round 1 (Group Stage — {_check_total} matches)"
+if _gs_played >= 72 and _ko_played > 0:
+    _check_total = 72 + _ko_played
+    _round_label = f"Round 2 (Knockout — {_ko_played} completed so far)"
+
+missing = []
 for col in pick_cols:
     p_name = col.replace(" Pick", "")
-    filled = stage1[col].notna().sum()
-    miss   = 72 - filled
+    _check_df = valid_matches.iloc[:_check_total]
+    filled = _check_df[col].notna().sum()
+    miss   = _check_total - filled
     if miss > 0:
-        missing.append({"Player": p_name, "Filled": filled, "Missing": miss})
+        missing.append({"Player": p_name, "Filled": int(filled), "Missing": int(miss),
+                        "Round": _round_label})
 
 if missing:
-    st.dataframe(pd.DataFrame(missing), use_container_width=True, hide_index=True)
+    st.markdown(f"Showing missing picks for: **{_round_label}**")
+    st.dataframe(pd.DataFrame(missing).drop(columns=["Round"]), use_container_width=True, hide_index=True)
 else:
-    st.success("✅ All players have completed their picks!")
+    st.success(f"✅ All players have completed their picks for {_round_label}!")
