@@ -1219,28 +1219,18 @@ def fetch_match_goalscorers():
                         _teams = _comp.get("competitors",[])
                         if len(_teams) < 2: continue
 
-                        # Build athlete_id → team_key lookup from rosters
-                        _ath_to_team = {}
                         _k0 = _team_key(_norm_team(_teams[0].get("team",{}).get("displayName","")))
                         _k1 = _team_key(_norm_team(_teams[1].get("team",{}).get("displayName","")))
                         if (_k0,_k1) in _out: continue
 
-                        for _tc in _teams:
-                            _tkey = _team_key(_norm_team(_tc.get("team",{}).get("displayName","")))
-                            for _roster_p in (_tc.get("roster") or []):
-                                _aid = str(_roster_p.get("athlete",{}).get("id",""))
-                                if _aid: _ath_to_team[_aid] = _tkey
-                            # Also map from linescores/statistics athlete refs
-                            for _stat in (_tc.get("statistics") or []):
-                                for _ath in (_stat.get("athletes") or []):
-                                    _aid = str((_ath.get("athlete") or {}).get("id",""))
-                                    if _aid: _ath_to_team[_aid] = _tkey
-
-                        _by_team = {_k0: [], _k1: []}
-                        # Get actual scores per team to validate
+                        # Build homeAway string → team_key map (e.g. "home"→"brazil", "away"→"japan")
+                        _ha_to_key = {}
                         _score_map = {}
                         for _tc in _teams:
                             _tkey = _team_key(_norm_team(_tc.get("team",{}).get("displayName","")))
+                            _ha_val = _tc.get("homeAway","").lower()
+                            if _ha_val:
+                                _ha_to_key[_ha_val] = _tkey
                             try: _score_map[_tkey] = int(_tc.get("score",0) or 0)
                             except: _score_map[_tkey] = 0
 
@@ -1248,6 +1238,7 @@ def fetch_match_goalscorers():
                         _done3 = bool(_status3.get("completed") or _status3.get("state")=="post")
                         if not _done3: continue
 
+                        _by_team = {_k0: [], _k1: []}
                         for _sc in (_comp.get("details") or []):
                             _txt2 = str(_sc.get("type",{}).get("text","")).lower()
                             if not any(g in _txt2 for g in ("goal","penalty")): continue
@@ -1255,22 +1246,21 @@ def fetch_match_goalscorers():
                             _sn   = _inv[0].get("displayName","") if _inv else ""
                             _min2 = _sc.get("clock",{}).get("displayValue","?")
                             _og2  = "own" in _txt2
-                            # homeAway = the team that BENEFITS from this goal
-                            _ha   = _sc.get("homeAway","").lower()
-                            _t0_ha = _teams[0].get("homeAway","").lower()
-                            _scorer_key = _k0 if _ha == _t0_ha else _k1
+                            # detail.homeAway = the side that SCORED this goal (benefiting team)
+                            _det_ha = _sc.get("homeAway","").lower()
+                            _scorer_key = _ha_to_key.get(_det_ha)
+                            if _scorer_key is None:
+                                # fallback: use competitor index
+                                _scorer_key = _k0
                             if _scorer_key in _by_team:
                                 _by_team[_scorer_key].append({"name":_sn,"minute":_min2,"og":_og2})
 
-                        # Fill gaps: only when we already have SOME scorers for that team
-                        # (ESPN sometimes omits all events for one side — don't fake it)
+                        # Only gap-fill if we have SOME named scorers (don't fake missing teams)
                         _total_found = sum(len(v) for v in _by_team.values())
                         if _total_found > 0:
                             for _tkey, _goals in _by_team.items():
                                 _expected = _score_map.get(_tkey, 0)
-                                # Only gap-fill if we got at least one scorer for this team
-                                # or if the total named goals == total expected goals (all accounted for)
-                                if len(_goals) < _expected and len(_goals) > 0:
+                                if 0 < len(_goals) < _expected:
                                     for _ in range(_expected - len(_goals)):
                                         _goals.append({"name":"—","minute":"?","og":False})
 
@@ -1383,14 +1373,24 @@ def fetch_player_stats():
     # ── Build from ESPN scoreboard details — parallel fetch for speed ──────────
     _espn_slugs = ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]
     _working = None
+    # Use Jun 28 (guaranteed to have matches) to detect working slug
+    _slug_test_dates = [_now.strftime('%Y%m%d'), "20260628", "20260625", "20260617"]
     for _s in _espn_slugs:
-        try:
-            _t = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_s}/scoreboard?dates={_now.strftime('%Y%m%d')}",
-                         timeout=6, headers={"User-Agent":"Mozilla/5.0"})
-            if _t.status_code == 200 and _t.json().get("events") is not None:
-                _working = _s; break
-        except Exception:
-            continue
+        for _test_date in _slug_test_dates:
+            try:
+                _t = req.get(
+                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_s}/scoreboard?dates={_test_date}",
+                    timeout=6, headers={"User-Agent":"Mozilla/5.0"}
+                )
+                if _t.status_code == 200:
+                    _t_data = _t.json()
+                    if _t_data.get("events") is not None:
+                        _working = _s
+                        break
+            except Exception:
+                continue
+        if _working:
+            break
 
     if _working:
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -2008,6 +2008,12 @@ st.markdown(f"""
 
 # ── Tournament Stats panel — right here, most visible spot ──────────────────
 if _tourney_stats:
+    _has_any = any(_tourney_stats.get(k) for k in ("top_scorers","top_assists","yellow_cards","red_cards"))
+    if not _has_any:
+        with st.expander("🔍 Stats Debug — click to see why data is missing", expanded=False):
+            st.write(f"_tourney_stats keys: {list(_tourney_stats.keys())}")
+            for k in ("top_scorers","top_assists","yellow_cards","red_cards"):
+                st.write(f"  {k}: {len(_tourney_stats.get(k,[]))} items")
     def _ts_rows(items, val_cls="goals"):
         medals  = {1:"🥇", 2:"🥈", 3:"🥉"}
         p_cls   = {1:"gold", 2:"silver", 3:"bronze"}
