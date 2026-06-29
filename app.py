@@ -2068,10 +2068,36 @@ st.markdown(f"""
 if _tourney_stats:
     _has_any = any(_tourney_stats.get(k) for k in ("top_scorers","top_assists","yellow_cards","red_cards"))
     if not _has_any:
-        with st.expander("🔍 Stats Debug — click to see why data is missing", expanded=False):
-            st.write(f"_tourney_stats keys: {list(_tourney_stats.keys())}")
-            for k in ("top_scorers","top_assists","yellow_cards","red_cards"):
-                st.write(f"  {k}: {len(_tourney_stats.get(k,[]))} items")
+        with st.expander("🔍 Stats Debug", expanded=True):
+            import requests as _req_dbg
+            st.write("**Testing ESPN slugs:**")
+            for _ds in ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]:
+                for _dd in ["20260630","20260628","20260625"]:
+                    try:
+                        _dr = _req_dbg.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_ds}/scoreboard?dates={_dd}",
+                                           timeout=6, headers={"User-Agent":"Mozilla/5.0"})
+                        _devs = _dr.json().get("events",[]) if _dr.status_code==200 else []
+                        st.write(f"  {_ds} / {_dd}: status={_dr.status_code} events={len(_devs)}")
+                        if _devs:
+                            _dc = (_devs[0].get("competitions") or [{}])[0]
+                            _dteams = _dc.get("competitors",[])
+                            _dnames = [(t.get("homeAway",""),t.get("team",{}).get("displayName",""),t.get("score","")) for t in _dteams]
+                            _ddetails = _dc.get("details",[])
+                            st.write(f"    teams={_dnames}")
+                            st.write(f"    details count={len(_ddetails)}")
+                            if _ddetails:
+                                for _dd2 in _ddetails[:3]:
+                                    st.write(f"    detail: type={_dd2.get('type',{}).get('text','')!r} homeAway={_dd2.get('homeAway','')!r} scorer={(_dd2.get('athletesInvolved') or [{}])[0].get('displayName','?')!r}")
+                        break
+                    except Exception as _de:
+                        st.write(f"  {_ds} / {_dd}: ERROR {_de}")
+            st.write("**Goalscorers cache sample:**")
+            _gs_sample = list(_goalscorers.items())[:3] if _goalscorers else []
+            if _gs_sample:
+                for _gk, _gv in _gs_sample:
+                    st.write(f"  {_gk}: keys={list(_gv.keys())[:5]}")
+            else:
+                st.write("  _goalscorers is EMPTY")
     def _ts_rows(items, val_cls="goals"):
         medals  = {1:"🥇", 2:"🥈", 3:"🥉"}
         p_cls   = {1:"gold", 2:"silver", 3:"bronze"}
@@ -2233,6 +2259,15 @@ today = now.date()
 selected_date = st.date_input("Select Date", value=today)
 
 matches = df[df["Date (NZDT)"].dt.date == selected_date]
+
+# ── Goalscorer debug ─────────────────────────────────────────────────────────
+with st.expander("🔍 Goalscorer Debug", expanded=False):
+    st.write(f"Total entries in _goalscorers: {len(_goalscorers)}")
+    for _gk, _gv in list(_goalscorers.items())[:6]:
+        st.write(f"  key={_gk} → stored_keys={list(_gv.keys())}")
+        for _tk, _goals in _gv.items():
+            if _goals:
+                st.write(f"    {_tk}: {[g['name'] for g in _goals[:3]]}")
 
 # ── Filter out non-WC rows (e.g. domestic league games from API) ─────────────
 _wc_teams = set(t.casefold() for t in TEAM_FLAG_MAP.keys())
