@@ -1193,9 +1193,8 @@ def fetch_match_goalscorers():
                         # TeamId unknown — skip (will be filled by ESPN fallback)
                         pass
                 if any(_by_team.values()):
-                    # Store keyed by (team_a, team_b) → goals_for_each_team_key
-                    _out[(_k0,_k1)] = {"t1": _by_team[_k0], "t2": _by_team[_k1],
-                                       "k1": _k0, "k2": _k1}
+                    _out[(_k0,_k1)] = _by_team
+                    _out[(_k1,_k0)] = _by_team
     except Exception:
         pass
 
@@ -1265,7 +1264,9 @@ def fetch_match_goalscorers():
                                         _goals.append({"name":"—","minute":"?","og":False})
 
                         if any(_by_team.values()):
-                            _out[(_k0,_k1)] = {"t1":_by_team[_k0],"t2":_by_team[_k1],"k1":_k0,"k2":_k1}
+                            # Store by team key directly — avoids positional confusion
+                            _out[(_k0,_k1)] = _by_team   # {team_key: [goals]}
+                            _out[(_k1,_k0)] = _by_team   # same dict, both orderings
                 _d2 += timedelta(days=1)
     except Exception:
         pass
@@ -1370,27 +1371,84 @@ def fetch_player_stats():
     _result["yellow_cards"]  = _to_list(_yellows)
     _result["red_cards"]     = _to_list(_reds)
 
-    # ── Build from ESPN scoreboard details — parallel fetch for speed ──────────
+    # ── Build stats from goalscorer data we already fetched (avoids duplicate API calls) ──
+    # fetch_player_stats is called after fetch_match_goalscorers, so we reuse that data
+    # by re-fetching the same ESPN scoreboard endpoint (now with working slug detection)
     _espn_slugs = ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]
     _working = None
-    # Use Jun 28 (guaranteed to have matches) to detect working slug
-    _slug_test_dates = [_now.strftime('%Y%m%d'), "20260628", "20260625", "20260617"]
     for _s in _espn_slugs:
-        for _test_date in _slug_test_dates:
+        for _test_date in [_now.strftime('%Y%m%d'), "20260628", "20260625", "20260617"]:
             try:
                 _t = req.get(
                     f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_s}/scoreboard?dates={_test_date}",
                     timeout=6, headers={"User-Agent":"Mozilla/5.0"}
                 )
-                if _t.status_code == 200:
-                    _t_data = _t.json()
-                    if _t_data.get("events") is not None:
-                        _working = _s
-                        break
+                if _t.status_code == 200 and _t.json().get("events") is not None:
+                    _working = _s; break
             except Exception:
                 continue
-        if _working:
-            break
+        if _working: break
+
+    if _working:
+        _espn_scorers, _espn_assists, _espn_yellows, _espn_reds = {}, {}, {}, {}
+        _scan_d = datetime(2026, 6, 11).date()
+
+        def _add(d, name, team, fc, photo):
+            if name not in d:
+                d[name] = {"team": team, "count": 0, "flag_code": fc, "photo": photo}
+            d[name]["count"] += 1
+
+        while _scan_d <= _now.date():
+            try:
+                _rr = req.get(
+                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_working}/scoreboard?dates={_scan_d.strftime('%Y%m%d')}",
+                    timeout=8, headers={"User-Agent":"Mozilla/5.0"}
+                )
+                if _rr.status_code == 200:
+                    for _ev in (_rr.json().get("events") or []):
+                        _comp = (_ev.get("competitions") or [{}])[0]
+                        if not (_comp.get("status",{}).get("type",{}).get("completed") or
+                                _comp.get("status",{}).get("type",{}).get("state") == "post"):
+                            continue
+                        _ha_to_team = {}
+                        for _tc in (_comp.get("competitors") or []):
+                            _ha_ = _tc.get("homeAway","")
+                            _nt_ = _norm_team(_tc.get("team",{}).get("displayName",""))
+                            _ha_to_team[_ha_] = _nt_
+                        for _det in (_comp.get("details") or []):
+                            _txt_ = str(_det.get("type",{}).get("text","")).lower()
+                            _inv_ = _det.get("athletesInvolved") or []
+                            _ha_  = _det.get("homeAway","")
+                            _nt_  = _ha_to_team.get(_ha_,"")
+                            _fc_  = TEAM_FLAG_MAP.get(_nt_,"")
+                            def _ph_(a):
+                                if not a: return ""
+                                _hs_ = a.get("headshot")
+                                if isinstance(_hs_, dict): return _hs_.get("href","")
+                                _id_ = a.get("id","")
+                                return f"https://a.espncdn.com/combiner/i?img=/i/headshots/soccer/players/full/{_id_}.png&w=96&h=70" if _id_ else ""
+                            if ("goal" in _txt_ or "penalty" in _txt_) and _inv_:
+                                _pn_ = _inv_[0].get("displayName","")
+                                if _pn_: _add(_espn_scorers, _pn_, _nt_, _fc_, _ph_(_inv_[0]))
+                                if len(_inv_) > 1 and "own" not in _txt_:
+                                    _an_ = _inv_[1].get("displayName","")
+                                    if _an_: _add(_espn_assists, _an_, _nt_, _fc_, _ph_(_inv_[1]))
+                            elif "yellow card" in _txt_ and _inv_:
+                                _pn_ = _inv_[0].get("displayName","")
+                                if _pn_: _add(_espn_yellows, _pn_, _nt_, _fc_, _ph_(_inv_[0]))
+                            elif "red card" in _txt_ and _inv_:
+                                _pn_ = _inv_[0].get("displayName","")
+                                if _pn_: _add(_espn_reds, _pn_, _nt_, _fc_, _ph_(_inv_[0]))
+            except Exception:
+                pass
+            _scan_d += timedelta(days=1)
+
+        if _espn_scorers: _result["top_scorers"]  = _to_list(_espn_scorers)
+        if _espn_assists: _result["top_assists"]   = _to_list(_espn_assists)
+        if _espn_yellows: _result["yellow_cards"]  = _to_list(_espn_yellows)
+        if _espn_reds:    _result["red_cards"]     = _to_list(_espn_reds)
+
+    return _result
 
     if _working:
         from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -2388,28 +2446,9 @@ else:
 
         _show_gs = bool(_gs_data and status in ("Finished", "LIVE"))
         if _show_gs and _gs_data:
-            # Support both storage formats:
-            # New: {"t1":[...], "t2":[...], "k1": key, "k2": key}
-            # Old ESPN: {"home":[...], "away":[...]}
-            if "t1" in _gs_data and "k1" in _gs_data:
-                _stored_k1 = _gs_data.get("k1", k1)
-                if _stored_k1 == k1:
-                    _hg = _gs_data.get("t1", [])
-                    _ag = _gs_data.get("t2", [])
-                else:
-                    _hg = _gs_data.get("t2", [])
-                    _ag = _gs_data.get("t1", [])
-            else:
-                # Old format — home=team1 side, away=team2 side
-                # But we need to check if the lookup was reversed
-                _orig = _goalscorers.get((k1, k2))
-                if _orig:
-                    _hg = _orig.get("home", [])
-                    _ag = _orig.get("away", [])
-                else:
-                    _rev = _goalscorers.get((k2, k1))
-                    _hg = _rev.get("away", []) if _rev else []
-                    _ag = _rev.get("home", []) if _rev else []
+            # _gs_data is {team_key: [goals]} — look up by each team's key directly
+            _hg = _gs_data.get(k1, [])
+            _ag = _gs_data.get(k2, [])
         else:
             _hg, _ag = [], []
 
