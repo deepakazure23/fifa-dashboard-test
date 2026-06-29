@@ -1262,12 +1262,17 @@ def fetch_match_goalscorers():
                             if _scorer_key in _by_team:
                                 _by_team[_scorer_key].append({"name":_sn,"minute":_min2,"og":_og2})
 
-                        # Fill gaps: if ESPN missed a scorer, add placeholder
-                        for _tkey, _goals in _by_team.items():
-                            _expected = _score_map.get(_tkey, 0)
-                            if len(_goals) < _expected:
-                                for _ in range(_expected - len(_goals)):
-                                    _goals.append({"name":"—","minute":"?","og":False})
+                        # Fill gaps: only when we already have SOME scorers for that team
+                        # (ESPN sometimes omits all events for one side — don't fake it)
+                        _total_found = sum(len(v) for v in _by_team.values())
+                        if _total_found > 0:
+                            for _tkey, _goals in _by_team.items():
+                                _expected = _score_map.get(_tkey, 0)
+                                # Only gap-fill if we got at least one scorer for this team
+                                # or if the total named goals == total expected goals (all accounted for)
+                                if len(_goals) < _expected and len(_goals) > 0:
+                                    for _ in range(_expected - len(_goals)):
+                                        _goals.append({"name":"—","minute":"?","og":False})
 
                         if any(_by_team.values()):
                             _out[(_k0,_k1)] = {"t1":_by_team[_k0],"t2":_by_team[_k1],"k1":_k0,"k2":_k1}
@@ -1375,7 +1380,7 @@ def fetch_player_stats():
     _result["yellow_cards"]  = _to_list(_yellows)
     _result["red_cards"]     = _to_list(_reds)
 
-    # ── Build from ESPN scoreboard details (same endpoint that works for goalscorers) ──
+    # ── Build from ESPN scoreboard details — parallel fetch for speed ──────────
     _espn_slugs = ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]
     _working = None
     for _s in _espn_slugs:
@@ -1388,69 +1393,79 @@ def fetch_player_stats():
             continue
 
     if _working:
-        _espn_scorers, _espn_assists, _espn_yellows, _espn_reds = {}, {}, {}, {}
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
+        _espn_scorers, _espn_assists, _espn_yellows, _espn_reds = {}, {}, {}, {}
+        _all_days = []
         _scan_d = datetime(2026, 6, 11).date()
         while _scan_d <= _now.date():
+            _all_days.append(_scan_d.strftime('%Y%m%d'))
+            _scan_d += timedelta(days=1)
+
+        def _fetch_day_stats(day_str):
             try:
-                _rr = req.get(
-                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_working}/scoreboard?dates={_scan_d.strftime('%Y%m%d')}",
+                _r = req.get(
+                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_working}/scoreboard?dates={day_str}",
                     timeout=8, headers={"User-Agent":"Mozilla/5.0"}
                 )
-                if _rr.status_code == 200:
-                    for _ev in (_rr.json().get("events") or []):
-                        _comp = (_ev.get("competitions") or [{}])[0]
-                        _status_done = (_comp.get("status",{}).get("type",{}).get("completed") or
-                                        _comp.get("status",{}).get("type",{}).get("state") == "post")
-                        if not _status_done: continue
-                        _team_by_ha = {}
-                        for _tc in (_comp.get("competitors") or []):
-                            _ha4 = _tc.get("homeAway","")
-                            _nt4 = _norm_team(_tc.get("team",{}).get("displayName",""))
-                            _team_by_ha[_ha4] = _nt4
-                        for _det in (_comp.get("details") or []):
-                            _txt4 = str(_det.get("type",{}).get("text","")).lower()
-                            _inv4 = _det.get("athletesInvolved") or []
-                            _ha4  = _det.get("homeAway","")
-                            _nt4  = _team_by_ha.get(_ha4,"")
-                            _fc4  = TEAM_FLAG_MAP.get(_nt4,"")
-                            def _photo4(ath):
-                                if not ath: return ""
-                                _hs = ath.get("headshot")
-                                if isinstance(_hs, dict): return _hs.get("href","")
-                                _aid = ath.get("id","")
-                                if _aid: return f"https://a.espncdn.com/combiner/i?img=/i/headshots/soccer/players/full/{_aid}.png&w=96&h=70"
-                                return ""
-                            if "goal" in _txt4 or "penalty" in _txt4:
-                                if _inv4:
-                                    _pn4 = _inv4[0].get("displayName","")
-                                    if _pn4:
-                                        if _pn4 not in _espn_scorers:
-                                            _espn_scorers[_pn4] = {"team":_nt4,"count":0,"flag_code":_fc4,"photo":_photo4(_inv4[0])}
-                                        _espn_scorers[_pn4]["count"] += 1
-                                    if len(_inv4) > 1 and "own" not in _txt4:
-                                        _an4 = _inv4[1].get("displayName","")
-                                        if _an4:
-                                            if _an4 not in _espn_assists:
-                                                _espn_assists[_an4] = {"team":_nt4,"count":0,"flag_code":_fc4,"photo":_photo4(_inv4[1])}
-                                            _espn_assists[_an4]["count"] += 1
-                            if "yellow card" in _txt4:
-                                if _inv4:
-                                    _pn4 = _inv4[0].get("displayName","")
-                                    if _pn4:
-                                        if _pn4 not in _espn_yellows:
-                                            _espn_yellows[_pn4] = {"team":_nt4,"count":0,"flag_code":_fc4,"photo":_photo4(_inv4[0])}
-                                        _espn_yellows[_pn4]["count"] += 1
-                            if "red card" in _txt4:
-                                if _inv4:
-                                    _pn4 = _inv4[0].get("displayName","")
-                                    if _pn4:
-                                        if _pn4 not in _espn_reds:
-                                            _espn_reds[_pn4] = {"team":_nt4,"count":0,"flag_code":_fc4,"photo":_photo4(_inv4[0])}
-                                        _espn_reds[_pn4]["count"] += 1
+                if _r.status_code != 200: return []
+                results = []
+                for _ev in (_r.json().get("events") or []):
+                    _comp = (_ev.get("competitions") or [{}])[0]
+                    _team_by_ha = {}
+                    for _tc in (_comp.get("competitors") or []):
+                        _ha_ = _tc.get("homeAway","")
+                        _nt_ = _norm_team(_tc.get("team",{}).get("displayName",""))
+                        _team_by_ha[_ha_] = _nt_
+                    for _det in (_comp.get("details") or []):
+                        _txt_ = str(_det.get("type",{}).get("text","")).lower()
+                        _inv_ = _det.get("athletesInvolved") or []
+                        _ha_  = _det.get("homeAway","")
+                        _nt_  = _team_by_ha.get(_ha_,"")
+                        _fc_  = TEAM_FLAG_MAP.get(_nt_,"")
+                        def _ph_(a):
+                            if not a: return ""
+                            _hs_ = a.get("headshot")
+                            if isinstance(_hs_, dict): return _hs_.get("href","")
+                            _id_ = a.get("id","")
+                            return f"https://a.espncdn.com/combiner/i?img=/i/headshots/soccer/players/full/{_id_}.png&w=96&h=70" if _id_ else ""
+                        if "goal" in _txt_ or "penalty" in _txt_:
+                            if _inv_:
+                                _pn_ = _inv_[0].get("displayName","")
+                                if _pn_: results.append(("goal", _pn_, _nt_, _fc_, _ph_(_inv_[0])))
+                                if len(_inv_) > 1 and "own" not in _txt_:
+                                    _an_ = _inv_[1].get("displayName","")
+                                    if _an_: results.append(("assist", _an_, _nt_, _fc_, _ph_(_inv_[1])))
+                        if "yellow card" in _txt_ and _inv_:
+                            _pn_ = _inv_[0].get("displayName","")
+                            if _pn_: results.append(("yellow", _pn_, _nt_, _fc_, _ph_(_inv_[0])))
+                        if "red card" in _txt_ and _inv_:
+                            _pn_ = _inv_[0].get("displayName","")
+                            if _pn_: results.append(("red", _pn_, _nt_, _fc_, _ph_(_inv_[0])))
+                return results
             except Exception:
-                pass
-            _scan_d += timedelta(days=1)
+                return []
+
+        with ThreadPoolExecutor(max_workers=6) as _pool:
+            _futures = {_pool.submit(_fetch_day_stats, d): d for d in _all_days}
+            for _fut in as_completed(_futures):
+                for _evt_type, _pname_, _nt_, _fc_, _photo_ in (_fut.result() or []):
+                    if _evt_type == "goal":
+                        if _pname_ not in _espn_scorers:
+                            _espn_scorers[_pname_] = {"team":_nt_,"count":0,"flag_code":_fc_,"photo":_photo_}
+                        _espn_scorers[_pname_]["count"] += 1
+                    elif _evt_type == "assist":
+                        if _pname_ not in _espn_assists:
+                            _espn_assists[_pname_] = {"team":_nt_,"count":0,"flag_code":_fc_,"photo":_photo_}
+                        _espn_assists[_pname_]["count"] += 1
+                    elif _evt_type == "yellow":
+                        if _pname_ not in _espn_yellows:
+                            _espn_yellows[_pname_] = {"team":_nt_,"count":0,"flag_code":_fc_,"photo":_photo_}
+                        _espn_yellows[_pname_]["count"] += 1
+                    elif _evt_type == "red":
+                        if _pname_ not in _espn_reds:
+                            _espn_reds[_pname_] = {"team":_nt_,"count":0,"flag_code":_fc_,"photo":_photo_}
+                        _espn_reds[_pname_]["count"] += 1
 
         if _espn_scorers: _result["top_scorers"]  = _to_list(_espn_scorers)
         if _espn_assists: _result["top_assists"]   = _to_list(_espn_assists)
@@ -1992,7 +2007,7 @@ st.markdown(f"""
 """, unsafe_allow_html=True)
 
 # ── Tournament Stats panel — right here, most visible spot ──────────────────
-if _tourney_stats and any(_tourney_stats.get(k) for k in ("top_scorers","top_assists","yellow_cards","red_cards")):
+if _tourney_stats:
     def _ts_rows(items, val_cls="goals"):
         medals  = {1:"🥇", 2:"🥈", 3:"🥉"}
         p_cls   = {1:"gold", 2:"silver", 3:"bronze"}
@@ -2084,37 +2099,6 @@ leaderboard["Accuracy"] = (leaderboard["Points"] / leaderboard["Matches"] * 100)
 
 st.markdown('<div class="section-title">🏆 Leaderboard</div>', unsafe_allow_html=True)
 
-# ── Tournament Stats + Top Scorers panel ────────────────────────────────────
-def _ts_rows(items, val_cls="goals"):
-    medals  = {1:"🥇", 2:"🥈", 3:"🥉"}
-    p_cls   = {1:"gold", 2:"silver", 3:"bronze"}
-    rows, prev, rank = "", None, 0
-    for i, p in enumerate(items[:5], 1):
-        if p.get("count") != prev: rank = i
-        prev = p.get("count")
-        _fc     = p.get("flag_code","")
-        _flag   = f'<img src="https://flagcdn.com/w40/{_fc}.png" style="width:22px;height:15px;object-fit:cover;border-radius:2px;border:1px solid rgba(255,255,255,0.15);" onerror="this.style.display=\'none\'">' if _fc else ""
-        _photo  = p.get("photo","")
-        _ph_el  = (
-            f'<img src="{_photo}" style="width:38px;height:38px;border-radius:50%;object-fit:cover;border:2px solid #1e3a5f;flex-shrink:0;" onerror="this.style.display=\'none\'">' 
-            if _photo else
-            '<div style="width:38px;height:38px;border-radius:50%;background:#0d1b30;border:2px solid #1e3a5f;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;">👤</div>'
-        )
-        _medal  = medals.get(rank, f'<span style="color:#4dabf7;font-family:Bebas Neue,Impact,sans-serif;font-size:15px">{rank}</span>')
-        rows += f"""
-        <div class="ts-row">
-            <div class="ts-pos {p_cls.get(rank,"")}">{_medal}</div>
-            {_ph_el}
-            <div class="ts-flag-sm">{_flag}</div>
-            <div class="ts-info">
-                <div class="ts-name-sm">{p.get("name","")}</div>
-                <div class="ts-team-sm">{p.get("team","")}</div>
-            </div>
-            <div style="text-align:right;flex-shrink:0">
-                <div class="ts-val {val_cls}">{p.get("count",0)}</div>
-            </div>
-        </div>"""
-    return rows or '<div style="color:#506080;font-size:12px;padding:10px 4px">Loading from API…</div>'
 
 _PALETTE = [
     "#ff6b6b","#ffd43b","#69db7c","#4dabf7","#ff922b",
