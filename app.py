@@ -1670,12 +1670,73 @@ def flag_html(url):
 # ✅ LEADERBOARD
 # =========================
 
-completed_matches = int(df["Result"].notna().sum())
-valid_matches = df[df["Team 1"].notna() & df["Team 2"].notna()]
+# Count every scheduled fixture using the Stage column (fully populated for
+# all 104 matches) rather than the Date column — several knockout rows don't
+# get a kickoff date filled in until the bracket slot is confirmed, which
+# would otherwise make them vanish from the totals.
+def _normalize_stage(s):
+    if s is None:
+        return None
+    try:
+        if pd.isna(s):
+            return None
+    except Exception:
+        pass
+    s = str(s).strip()
+    if not s or s.casefold() in ("nan", "none", "pool points", "total"):
+        return None
+    if s.casefold().startswith("group"):
+        return "Group Stage"
+    return s
+
+STAGE_ORDER = [
+    "Group Stage", "Round of 32", "Round of 16",
+    "Quarterfinals", "Semifinals", "Third Place", "Final",
+]
+
+if "Stage" in df.columns:
+    _stage_norm_series = df["Stage"].apply(_normalize_stage)
+    valid_matches = df[_stage_norm_series.notna()].copy()
+    valid_matches["StageNorm"] = _stage_norm_series[_stage_norm_series.notna()]
+else:
+    valid_matches = df[df["Date (NZDT)"].notna()].copy()
+    valid_matches["StageNorm"] = None
+
 total_matches = len(valid_matches)
 completed_matches = valid_matches["Result"].notna().sum()
 remaining_matches = total_matches - completed_matches
 player_count = len([c for c in df.columns if "Pick" in c])
+
+# ── Stage-wise breakdown (Group Stage, Round of 32, Round of 16, etc.) ──────
+_stage_total = {}
+_stage_done = {}
+for _, _srow in valid_matches.iterrows():
+    _st = _srow.get("StageNorm")
+    if _st is None:
+        continue
+    _stage_total[_st] = _stage_total.get(_st, 0) + 1
+    _sres = _srow.get("Result")
+    if pd.notna(_sres) and str(_sres).strip() != "":
+        _stage_done[_st] = _stage_done.get(_st, 0) + 1
+
+def _stage_breakdown_html(counts_dict):
+    _lines = []
+    for _s in STAGE_ORDER:
+        _v = counts_dict.get(_s, 0)
+        if _v > 0:
+            _lines.append(
+                f'<div style="display:flex;justify-content:space-between;'
+                f'font-size:11px;color:#9aa6cc;padding:1px 4px;">'
+                f'<span>{_s}</span><span style="color:#e0e4f4;font-weight:700;">{_v}</span></div>'
+            )
+    return "".join(_lines)
+
+_completed_by_stage = {s: _stage_done.get(s, 0) for s in STAGE_ORDER}
+_remaining_by_stage  = {s: _stage_total.get(s, 0) - _stage_done.get(s, 0) for s in STAGE_ORDER}
+
+_completed_breakdown_html = _stage_breakdown_html(_completed_by_stage)
+_remaining_breakdown_html = _stage_breakdown_html(_remaining_by_stage)
+
 st.markdown(f"""
 <div class="stat-row">
     <div class="stat-card" data-icon="🏟️">
@@ -1686,12 +1747,14 @@ st.markdown(f"""
     <div class="stat-card" data-icon="✅">
         <div class="stat-label">Completed</div>
         <div class="stat-value green">{completed_matches}</div>
-        <div class="stat-sublabel">Results Available</div>
+        <div class="stat-sublabel" style="margin-bottom:6px;">Results Available</div>
+        <div style="text-align:left;">{_completed_breakdown_html}</div>
     </div>
     <div class="stat-card" data-icon="⏳">
         <div class="stat-label">Remaining</div>
         <div class="stat-value orange">{remaining_matches}</div>
-        <div class="stat-sublabel">To Be Played</div>
+        <div class="stat-sublabel" style="margin-bottom:6px;">To Be Played</div>
+        <div style="text-align:left;">{_remaining_breakdown_html}</div>
     </div>
     <div class="stat-card" data-icon="👥">
         <div class="stat-label">Players</div>
