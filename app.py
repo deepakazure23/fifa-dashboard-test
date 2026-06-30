@@ -246,85 +246,71 @@ st.markdown("""
 .match-inner {
     display: flex;
     align-items: center;
-    padding: 12px 18px;
-    gap: 6px;
+    padding: 13px 22px;
+    gap: 10px;
 }
-/* Fixed-width team blocks so goalscorer columns get the remaining space */
-.team-left  { display: flex; align-items: center; gap: 8px; flex-shrink: 0; width: 150px; }
-.team-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; width: 150px; justify-content: flex-end; }
+.team-left  { display: flex; align-items: center; gap: 10px; flex: 2; }
+.team-right { display: flex; align-items: center; gap: 10px; flex: 2; justify-content: flex-end; }
 .team-name {
     font-family: 'Roboto Condensed', Arial, sans-serif;
     font-weight: 700;
-    font-size: 15px;
+    font-size: 16px;
     color: #c0c8e8;
     transition: color 0.2s;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
-.team-name.winner { color: #ffd700; text-shadow: 0 0 14px rgba(255,215,0,0.45); }
+.team-name.winner { color: #ffd700; text-shadow: 0 0 14px rgba(255,215,0,0.45); font-size: 17px; }
 .team-name.loser  { color: #3a4560; }
 .flag-img {
-    width: 32px; height: 22px;
+    width: 38px;
+    height: 26px;
     object-fit: cover;
-    border-radius: 2px;
+    border-radius: 3px;
     border: 1px solid rgba(255,255,255,0.18);
     flex-shrink: 0;
+    display: inline-block;
 }
-.flag-blank { width: 32px; height: 22px; display: inline-block; flex-shrink: 0; }
+.flag-blank { width: 38px; height: 26px; display: inline-block; }
 
-/* Goalscorer columns — inline in the same row, between team and score */
-.gs-col {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    justify-content: center;
+/* ── VS / Result divider ── */
+.vs-center { min-width: 110px; text-align: center; }
+.vs-text {
+    font-family: 'Bebas Neue', Impact, sans-serif;
+    font-size: 20px;
+    color: #d4af37;
+    line-height: 1;
 }
-.gs-col.right { align-items: flex-end; }
-.gs-entry {
-    font-size: 11px;
-    color: #7888a8;
-    font-family: 'Roboto Condensed', Arial, sans-serif;
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
-}
-.gs-col.right .gs-entry { flex-direction: row-reverse; }
-.gs-entry .gs-ball  { font-size: 10px; flex-shrink: 0; }
-.gs-entry .gs-name  { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.gs-entry .gs-min   { color: #d4af37; font-size: 10px; font-weight: 700; flex-shrink: 0; }
-
-/* ── VS / Score centre ── */
-.vs-center { width: 160px; flex-shrink: 0; text-align: center; }
-.vs-text { font-family: 'Bebas Neue', Impact, sans-serif; font-size: 20px; color: #d4af37; line-height: 1; }
 .result-win {
     font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 11px; color: #80e8a8; line-height: 1.35; letter-spacing: 1px;
+    font-size: 12px;
+    color: #80e8a8;
+    line-height: 1.35;
+    letter-spacing: 1px;
 }
 .result-win.score-line {
-    font-size: 28px; letter-spacing: 4px; color: #80e8a8;
+    font-size: 26px;
+    letter-spacing: 3px;
+    color: #80e8a8;
     text-shadow: 0 0 18px rgba(128,232,168,0.35);
 }
 .result-draw {
     font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 28px; color: #90c8ff; letter-spacing: 4px;
-    line-height: 1.2; text-align: center;
+    font-size: 26px;
+    color: #90c8ff;
+    letter-spacing: 3px;
+    line-height: 1.2;
+    text-align: center;
     text-shadow: 0 0 14px rgba(144,200,255,0.3);
 }
 .live-pulse {
     font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 18px; color: #ff4444; letter-spacing: 2px;
+    font-size: 18px;
+    color: #ff4444;
     animation: blinker 1.2s linear infinite;
+    letter-spacing: 2px;
 }
 
-/* ── Match meta (rightmost) ── */
-.match-meta { flex-shrink: 0; min-width: 175px; text-align: right; }
+/* ── Match meta (right side) ── */
+.match-meta { min-width: 175px; text-align: right; }
 .match-date { font-size: 13px; font-weight: 600; color: #b8c4e8; }
 
 /* ── Status badges ── */
@@ -503,98 +489,6 @@ section[data-testid="stSidebar"]        { display: none !important; }
 button[data-testid="collapsedControl"]  { display: none !important; }
 #MainMenu { display: none !important; }
 footer    { display: none !important; }
-
-/* ── Tournament stats + top scorers panel ── */
-.ts-panel {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin: 0 0 22px;
-}
-@media (max-width: 700px) { .ts-panel { grid-template-columns: 1fr; } }
-.ts-card {
-    background: linear-gradient(135deg, #08111f 0%, #0d1b30 100%);
-    border: 1px solid #1a3050;
-    border-radius: 12px;
-    padding: 16px 18px 12px;
-}
-.ts-card-title {
-    font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 15px;
-    letter-spacing: 3px;
-    color: #d4af37;
-    margin-bottom: 10px;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-}
-.ts-row {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 5px 0;
-    border-bottom: 1px solid rgba(255,255,255,0.045);
-}
-.ts-row:last-child { border-bottom: none; }
-.ts-pos {
-    font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 16px;
-    width: 22px;
-    color: #4a6a8a;
-    flex-shrink: 0;
-    text-align: center;
-}
-.ts-pos.gold   { color: #ffd700; }
-.ts-pos.silver { color: #c0c0c0; }
-.ts-pos.bronze { color: #cd7f32; }
-.ts-flag-sm { flex-shrink: 0; }
-.ts-flag-sm img { width: 24px; height: 16px; object-fit: cover; border-radius: 2px; border: 1px solid rgba(255,255,255,0.12); }
-.ts-info { flex: 1; min-width: 0; }
-.ts-name-sm {
-    font-family: 'Roboto Condensed', Arial, sans-serif;
-    font-weight: 700;
-    font-size: 13px;
-    color: #c8d4f0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.ts-team-sm { font-size: 10px; color: #506080; font-family: 'Roboto Condensed',Arial,sans-serif; }
-.ts-val {
-    font-family: 'Bebas Neue', Impact, sans-serif;
-    font-size: 20px;
-    min-width: 28px;
-    text-align: right;
-    flex-shrink: 0;
-}
-.ts-val.goals   { color: #80e8a8; }
-.ts-val.assists { color: #74c0fc; }
-.ts-val.yellow  { color: #ffd43b; }
-.ts-val.red     { color: #ff6b6b; }
-.ts-val-lbl { font-size: 9px; color: #405060; letter-spacing: 1px; text-align: right; }
-
-/* ── Player photo hover ── */
-.ts-player-wrap {
-    display: flex; align-items: center; gap: 7px; flex: 1; min-width: 0;
-    position: relative;
-}
-.ts-photo-hover {
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 72px;
-    height: 72px;
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.2s;
-    z-index: 99;
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.7);
-}
-.ts-row:hover .ts-photo-hover { opacity: 1; }
-.ts-photo-img {
-    width: 100%; height: 100%; object-fit: cover;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -702,6 +596,25 @@ def _is_draw_result(value):
     return bool(m and m.group(1) == m.group(2))
 
 
+def _parse_pens(value):
+    """Parse a penalty-shootout score like '4-3', '4:3', '4 - 3' into (int, int)."""
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+    s = str(value).replace("—", "-").replace("–", "-").replace(":", "-").strip()
+    m = re.search(r'(\d+)\s*[-]\s*(\d+)', s)
+    if not m:
+        return None
+    try:
+        return int(m.group(1)), int(m.group(2))
+    except Exception:
+        return None
+
+
 def _status_text(*values):
     bits = []
     for v in values:
@@ -733,12 +646,59 @@ def _is_finishedish(status_text):
     ))
 
 
+def _extract_pens_fifa(ev):
+    """Best-effort extraction of a penalty-shootout score from a FIFA calendar event."""
+    for hk, ak in [
+        ("HomePenaltyScore", "AwayPenaltyScore"),
+        ("PenaltyHomeScore", "PenaltyAwayScore"),
+        ("HomePenalties", "AwayPenalties"),
+        ("HomePenaltyGoals", "AwayPenaltyGoals"),
+    ]:
+        hv, av = ev.get(hk), ev.get(ak)
+        if hv is not None and av is not None:
+            try:
+                return int(hv), int(av)
+            except Exception:
+                pass
+    home_b, away_b = ev.get("Home"), ev.get("Away")
+    if isinstance(home_b, dict) and isinstance(away_b, dict):
+        for blk_key in ("PenaltyScore", "ShootoutScore", "Pens", "PenaltyGoals"):
+            hv, av = home_b.get(blk_key), away_b.get(blk_key)
+            if hv is not None and av is not None:
+                try:
+                    return int(hv), int(av)
+                except Exception:
+                    pass
+    return None
+
+
+def _extract_pens_espn(competitors):
+    """Best-effort extraction of a penalty-shootout score from ESPN competitor blocks."""
+    if not competitors or len(competitors) < 2:
+        return None
+    try:
+        vals = []
+        for c in competitors:
+            v = c.get("shootoutScore")
+            if v is None:
+                v = c.get("shootout_score")
+            if v is None:
+                return None
+            vals.append(int(v))
+        if len(vals) == 2:
+            return vals[0], vals[1]
+    except Exception:
+        pass
+    return None
+
+
 @st.cache_data(ttl=120)
 def fetch_api_results():
     """Fetch only finished WC2026 results from official / fallback providers."""
     _out = {}
     _scores_out = {}
     _datetimes_out = {}  # team pair → kick-off datetime in NZT
+    _pens_out = {}        # team pair → (home_pens, away_pens) from a penalty shootout
     _now = datetime.now(NZ_TZ)
     _diso = _now.strftime("%Y-%m-%d")
 
@@ -821,7 +781,20 @@ def fetch_api_results():
 
             _n0 = _norm_team(_h)
             _n1 = _norm_team(_a)
-            _w = _n0 if hs > as_ else _n1 if as_ > hs else "Draw"
+
+            # If level after full/extra time, a knockout match is decided on penalties.
+            _pens = None
+            if hs == as_:
+                _pens = _extract_pens_fifa(_ev)
+
+            if _pens:
+                p0, p1 = _pens
+                _w = _n0 if p0 > p1 else _n1 if p1 > p0 else "Draw"
+                _pens_out[(_team_key(_n0), _team_key(_n1))] = (p0, p1)
+                _pens_out[(_team_key(_n1), _team_key(_n0))] = (p1, p0)
+            else:
+                _w = _n0 if hs > as_ else _n1 if as_ > hs else "Draw"
+
             _out[(_team_key(_n0), _team_key(_n1))] = _w
             _out[(_team_key(_n1), _team_key(_n0))] = _w
             # Store scores so match cards can display "2 - 1" etc.
@@ -911,9 +884,23 @@ def fetch_api_results():
                     _n0 = _norm_team(_names[0])
                     _n1 = _norm_team(_names[1])
                     _k0, _k1 = _team_key(_n0), _team_key(_n1)
+
+                    # If scores are level, check for a penalty-shootout score from ESPN.
+                    _pens = None
+                    if _sc[0] == _sc[1]:
+                        _pens = _extract_pens_espn(_teams)
+                        if _pens:
+                            p0, p1 = _pens
+                            _pens_out.setdefault((_k0, _k1), (p0, p1))
+                            _pens_out.setdefault((_k1, _k0), (p1, p0))
+
                     # Fill result + score gaps (don't overwrite FIFA data)
                     if (_k0, _k1) not in _out:
-                        _w = _n0 if _sc[0] > _sc[1] else _n1 if _sc[1] > _sc[0] else "Draw"
+                        if _pens:
+                            p0, p1 = _pens
+                            _w = _n0 if p0 > p1 else _n1 if p1 > p0 else "Draw"
+                        else:
+                            _w = _n0 if _sc[0] > _sc[1] else _n1 if _sc[1] > _sc[0] else "Draw"
                         _out[(_k0, _k1)] = _w
                         _out[(_k1, _k0)] = _w
                     # Always fill score gaps from ESPN
@@ -1001,7 +988,7 @@ def fetch_api_results():
     except:
         pass
 
-    return _out, _scores_out, _datetimes_out
+    return _out, _scores_out, _datetimes_out, _pens_out
 
 
 @st.cache_data(ttl=3600)   # schedule rarely changes — cache 1 hour
@@ -1129,408 +1116,6 @@ def fetch_schedule():
         _d += timedelta(days=1)
 
     return _out
-
-
-@st.cache_data(ttl=120)
-def fetch_match_goalscorers():
-    """
-    Returns {(k1,k2): {"home":[{name,minute,og}], "away":[...]}}
-    Tries FIFA MatchEvents → ESPN competition details.
-    """
-    _out = {}
-    _now = datetime.now(NZ_TZ)
-
-    def _d(val):
-        if isinstance(val, list) and val:
-            v = val[0]
-            return (v.get("Description","") or v.get("Name","") if isinstance(v, dict) else str(v))
-        if isinstance(val, dict): return val.get("Description","") or val.get("Name","")
-        return str(val) if val else ""
-
-    def _tname(b):
-        if not isinstance(b, dict): return ""
-        for k in ("ShortClubName","TeamName","Name"):
-            v = b.get(k)
-            if v:
-                t = _d(v)
-                if t: return t.strip()
-        return ""
-
-    # ── FIFA ────────────────────────────────────────────────────────────────
-    try:
-        _r = req.get(
-            "https://api.fifa.com/api/v3/calendar/matches?count=500"
-            "&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
-            timeout=12, headers={"User-Agent": "Mozilla/5.0"}
-        )
-        if _r.status_code == 200:
-            for _ev in (_r.json().get("Results") or []):
-                _h_blk = _ev.get("Home") or {}
-                _a_blk = _ev.get("Away") or {}
-                _h = _norm_team(_tname(_h_blk))
-                _a = _norm_team(_tname(_a_blk))
-                if not _h or not _a: continue
-                _k0, _k1 = _team_key(_h), _team_key(_a)
-                _home_id = str(_h_blk.get("IdTeam") or _h_blk.get("TeamId") or "")
-                _away_id = str(_a_blk.get("IdTeam") or _a_blk.get("TeamId") or "")
-                # Store by team key — safe even when TeamId is missing
-                _by_team = {_k0: [], _k1: []}
-                for _me in (_ev.get("MatchEvents") or []):
-                    _tid  = str(_me.get("IdTeam") or _me.get("TeamId") or "")
-                    _type = str(_me.get("TypeId") or _me.get("Type") or "")
-                    _txt  = str(_me.get("EventDescription") or _me.get("TypeName") or "").lower()
-                    if _type not in ("0","1","2") and "goal" not in _txt: continue
-                    _og   = _type == "1" or "own" in _txt
-                    _sraw = _me.get("Scorer") or _me.get("PlayerName") or {}
-                    _sname = _d(_sraw.get("ShortName") or _sraw.get("Name") or "") if isinstance(_sraw, dict) else str(_sraw)
-                    _min   = str(_me.get("MatchMinute") or _me.get("Minute") or "?")
-                    _entry = {"name": _sname.strip(), "minute": _min, "og": _og}
-                    if _tid == _home_id and _home_id:
-                        _by_team[_k0].append(_entry)
-                    elif _tid == _away_id and _away_id:
-                        _by_team[_k1].append(_entry)
-                    else:
-                        # TeamId unknown — skip (will be filled by ESPN fallback)
-                        pass
-                if any(_by_team.values()):
-                    _out[(_k0,_k1)] = _by_team
-                    _out[(_k1,_k0)] = _by_team
-    except Exception:
-        pass
-
-    # ── ESPN competition details fallback ────────────────────────────────────
-    try:
-        _espn_slugs = ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]
-        _slug = None
-        for _s in _espn_slugs:
-            _t = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_s}/scoreboard?dates={_now.strftime('%Y%m%d')}",
-                         timeout=6, headers={"User-Agent":"Mozilla/5.0"})
-            if _t.status_code == 200 and _t.json().get("events") is not None:
-                _slug = _s; break
-        if _slug:
-            _d2 = datetime(2026, 6, 11).date()
-            while _d2 <= _now.date():
-                _r2 = req.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_slug}/scoreboard?dates={_d2.strftime('%Y%m%d')}",
-                              timeout=8, headers={"User-Agent":"Mozilla/5.0"})
-                if _r2.status_code == 200:
-                    for _ev in (_r2.json().get("events") or []):
-                        _comp  = (_ev.get("competitions") or [{}])[0]
-                        _teams = _comp.get("competitors",[])
-                        if len(_teams) < 2: continue
-
-                        _k0 = _team_key(_norm_team(_teams[0].get("team",{}).get("displayName","")))
-                        _k1 = _team_key(_norm_team(_teams[1].get("team",{}).get("displayName","")))
-                        if (_k0,_k1) in _out: continue
-
-                        # Build homeAway string → team_key map (e.g. "home"→"brazil", "away"→"japan")
-                        _ha_to_key = {}
-                        _score_map = {}
-                        for _tc in _teams:
-                            _tkey = _team_key(_norm_team(_tc.get("team",{}).get("displayName","")))
-                            _ha_val = _tc.get("homeAway","").lower()
-                            if _ha_val:
-                                _ha_to_key[_ha_val] = _tkey
-                            try: _score_map[_tkey] = int(_tc.get("score",0) or 0)
-                            except: _score_map[_tkey] = 0
-
-                        _status3 = _comp.get("status",{}).get("type",{})
-                        _done3 = bool(_status3.get("completed") or _status3.get("state")=="post")
-                        if not _done3: continue
-
-                        _by_team = {_k0: [], _k1: []}
-                        for _sc in (_comp.get("details") or []):
-                            _txt2 = str(_sc.get("type",{}).get("text","")).lower()
-                            if not any(g in _txt2 for g in ("goal","penalty")): continue
-                            _inv  = _sc.get("athletesInvolved") or []
-                            _sn   = _inv[0].get("displayName","") if _inv else ""
-                            _min2 = _sc.get("clock",{}).get("displayValue","?")
-                            _og2  = "own" in _txt2
-                            # detail.homeAway = the side that SCORED this goal (benefiting team)
-                            _det_ha = _sc.get("homeAway","").lower()
-                            _scorer_key = _ha_to_key.get(_det_ha)
-                            if _scorer_key is None:
-                                # fallback: use competitor index
-                                _scorer_key = _k0
-                            if _scorer_key in _by_team:
-                                _by_team[_scorer_key].append({"name":_sn,"minute":_min2,"og":_og2})
-
-                        # Only gap-fill if we have SOME named scorers (don't fake missing teams)
-                        _total_found = sum(len(v) for v in _by_team.values())
-                        if _total_found > 0:
-                            for _tkey, _goals in _by_team.items():
-                                _expected = _score_map.get(_tkey, 0)
-                                if 0 < len(_goals) < _expected:
-                                    for _ in range(_expected - len(_goals)):
-                                        _goals.append({"name":"—","minute":"?","og":False})
-
-                        if any(_by_team.values()):
-                            # Store by team key directly — avoids positional confusion
-                            _out[(_k0,_k1)] = _by_team   # {team_key: [goals]}
-                            _out[(_k1,_k0)] = _by_team   # same dict, both orderings
-                _d2 += timedelta(days=1)
-    except Exception:
-        pass
-
-    return _out
-
-
-@st.cache_data(ttl=300)
-def fetch_player_stats():
-    """
-    Returns dict with keys: top_scorers, top_assists, yellow_cards, red_cards
-    Each is a list of {name, team, count, flag_code}
-    """
-    _now = datetime.now(NZ_TZ)
-    _result = {"top_scorers":[], "top_assists":[], "yellow_cards":[], "red_cards":[]}
-
-    def _desc(val):
-        if isinstance(val, list) and val:
-            v = val[0]; return (v.get("Description","") if isinstance(v,dict) else str(v))
-        if isinstance(val, dict): return val.get("Description","") or val.get("Name","")
-        return str(val) if val else ""
-
-    # ── Build from FIFA match events ─────────────────────────────────────────
-    _scorers   = {}   # player → {team, goals}
-    _assisters = {}
-    _yellows   = {}
-    _reds      = {}
-
-    try:
-        _r = req.get(
-            "https://api.fifa.com/api/v3/calendar/matches?count=500"
-            "&from=2026-06-11T00:00:00Z&to=2026-07-20T23:59:59Z&language=en",
-            timeout=12, headers={"User-Agent":"Mozilla/5.0"}
-        )
-        if _r.status_code == 200:
-            for _ev in (_r.json().get("Results") or []):
-                def _tname2(b):
-                    if not isinstance(b, dict): return ""
-                    for k in ("ShortClubName","TeamName","Name"):
-                        v = b.get(k)
-                        if v:
-                            t = _desc(v)
-                            if t: return t.strip()
-                    return ""
-                _h_blk = _ev.get("Home") or {}
-                _a_blk = _ev.get("Away") or {}
-                _home_id = str(_h_blk.get("IdTeam") or _h_blk.get("TeamId") or "")
-                _h_name  = _norm_team(_tname2(_h_blk))
-                _a_name  = _norm_team(_tname2(_a_blk))
-
-                for _me in (_ev.get("MatchEvents") or []):
-                    _tid   = str(_me.get("IdTeam") or _me.get("TeamId") or "")
-                    _team  = _h_name if _tid == _home_id else _a_name
-                    _type  = str(_me.get("TypeId") or "")
-                    _txt   = str(_me.get("EventDescription") or _me.get("TypeName") or "").lower()
-
-                    def _pname(key):
-                        raw = _me.get(key) or {}
-                        if isinstance(raw, dict):
-                            return _desc(raw.get("ShortName") or raw.get("Name") or "")
-                        return str(raw)
-
-                    # Goals (0=goal, 2=penalty)
-                    if _type in ("0","2") or ("goal" in _txt and "own" not in _txt):
-                        _sn = _pname("Scorer") or _pname("PlayerName")
-                        if _sn:
-                            if _sn not in _scorers: _scorers[_sn] = {"team":_team,"count":0}
-                            _scorers[_sn]["count"] += 1
-
-                    # Assists
-                    if _type == "0" or "goal" in _txt:
-                        _an = _pname("Assist") or _pname("AssistPlayer")
-                        if _an:
-                            if _an not in _assisters: _assisters[_an] = {"team":_team,"count":0}
-                            _assisters[_an]["count"] += 1
-
-                    # Yellow cards (TypeId 4 or 5)
-                    if _type in ("4","5") or "yellow" in _txt:
-                        _pn = _pname("Player") or _pname("PlayerName")
-                        if _pn:
-                            if _pn not in _yellows: _yellows[_pn] = {"team":_team,"count":0}
-                            _yellows[_pn]["count"] += 1
-
-                    # Red cards (TypeId 6 or 7)
-                    if _type in ("6","7") or "red" in _txt:
-                        _pn = _pname("Player") or _pname("PlayerName")
-                        if _pn:
-                            if _pn not in _reds: _reds[_pn] = {"team":_team,"count":0}
-                            _reds[_pn]["count"] += 1
-    except Exception:
-        pass
-
-    def _to_list(d, top=5):
-        rows = [{"name":n,"team":v["team"],"count":v["count"],
-                 "flag_code":TEAM_FLAG_MAP.get(v["team"],""),
-                 "photo": v.get("photo","")} for n,v in d.items()]
-        rows.sort(key=lambda x: -x["count"])
-        return rows[:top]
-
-    _result["top_scorers"]   = _to_list(_scorers)
-    _result["top_assists"]   = _to_list(_assisters)
-    _result["yellow_cards"]  = _to_list(_yellows)
-    _result["red_cards"]     = _to_list(_reds)
-
-    # ── Build stats from goalscorer data we already fetched (avoids duplicate API calls) ──
-    # fetch_player_stats is called after fetch_match_goalscorers, so we reuse that data
-    # by re-fetching the same ESPN scoreboard endpoint (now with working slug detection)
-    _espn_slugs = ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]
-    _working = None
-    for _s in _espn_slugs:
-        for _test_date in [_now.strftime('%Y%m%d'), "20260628", "20260625", "20260617"]:
-            try:
-                _t = req.get(
-                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_s}/scoreboard?dates={_test_date}",
-                    timeout=6, headers={"User-Agent":"Mozilla/5.0"}
-                )
-                if _t.status_code == 200 and _t.json().get("events") is not None:
-                    _working = _s; break
-            except Exception:
-                continue
-        if _working: break
-
-    if _working:
-        _espn_scorers, _espn_assists, _espn_yellows, _espn_reds = {}, {}, {}, {}
-        _scan_d = datetime(2026, 6, 11).date()
-
-        def _add(d, name, team, fc, photo):
-            if name not in d:
-                d[name] = {"team": team, "count": 0, "flag_code": fc, "photo": photo}
-            d[name]["count"] += 1
-
-        while _scan_d <= _now.date():
-            try:
-                _rr = req.get(
-                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_working}/scoreboard?dates={_scan_d.strftime('%Y%m%d')}",
-                    timeout=8, headers={"User-Agent":"Mozilla/5.0"}
-                )
-                if _rr.status_code == 200:
-                    for _ev in (_rr.json().get("events") or []):
-                        _comp = (_ev.get("competitions") or [{}])[0]
-                        if not (_comp.get("status",{}).get("type",{}).get("completed") or
-                                _comp.get("status",{}).get("type",{}).get("state") == "post"):
-                            continue
-                        _ha_to_team = {}
-                        for _tc in (_comp.get("competitors") or []):
-                            _ha_ = _tc.get("homeAway","")
-                            _nt_ = _norm_team(_tc.get("team",{}).get("displayName",""))
-                            _ha_to_team[_ha_] = _nt_
-                        for _det in (_comp.get("details") or []):
-                            _txt_ = str(_det.get("type",{}).get("text","")).lower()
-                            _inv_ = _det.get("athletesInvolved") or []
-                            _ha_  = _det.get("homeAway","")
-                            _nt_  = _ha_to_team.get(_ha_,"")
-                            _fc_  = TEAM_FLAG_MAP.get(_nt_,"")
-                            def _ph_(a):
-                                if not a: return ""
-                                _hs_ = a.get("headshot")
-                                if isinstance(_hs_, dict): return _hs_.get("href","")
-                                _id_ = a.get("id","")
-                                return f"https://a.espncdn.com/combiner/i?img=/i/headshots/soccer/players/full/{_id_}.png&w=96&h=70" if _id_ else ""
-                            if ("goal" in _txt_ or "penalty" in _txt_) and _inv_:
-                                _pn_ = _inv_[0].get("displayName","")
-                                if _pn_: _add(_espn_scorers, _pn_, _nt_, _fc_, _ph_(_inv_[0]))
-                                if len(_inv_) > 1 and "own" not in _txt_:
-                                    _an_ = _inv_[1].get("displayName","")
-                                    if _an_: _add(_espn_assists, _an_, _nt_, _fc_, _ph_(_inv_[1]))
-                            elif "yellow card" in _txt_ and _inv_:
-                                _pn_ = _inv_[0].get("displayName","")
-                                if _pn_: _add(_espn_yellows, _pn_, _nt_, _fc_, _ph_(_inv_[0]))
-                            elif "red card" in _txt_ and _inv_:
-                                _pn_ = _inv_[0].get("displayName","")
-                                if _pn_: _add(_espn_reds, _pn_, _nt_, _fc_, _ph_(_inv_[0]))
-            except Exception:
-                pass
-            _scan_d += timedelta(days=1)
-
-        if _espn_scorers: _result["top_scorers"]  = _to_list(_espn_scorers)
-        if _espn_assists: _result["top_assists"]   = _to_list(_espn_assists)
-        if _espn_yellows: _result["yellow_cards"]  = _to_list(_espn_yellows)
-        if _espn_reds:    _result["red_cards"]     = _to_list(_espn_reds)
-
-    return _result
-
-    if _working:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
-
-        _espn_scorers, _espn_assists, _espn_yellows, _espn_reds = {}, {}, {}, {}
-        _all_days = []
-        _scan_d = datetime(2026, 6, 11).date()
-        while _scan_d <= _now.date():
-            _all_days.append(_scan_d.strftime('%Y%m%d'))
-            _scan_d += timedelta(days=1)
-
-        def _fetch_day_stats(day_str):
-            try:
-                _r = req.get(
-                    f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_working}/scoreboard?dates={day_str}",
-                    timeout=8, headers={"User-Agent":"Mozilla/5.0"}
-                )
-                if _r.status_code != 200: return []
-                results = []
-                for _ev in (_r.json().get("events") or []):
-                    _comp = (_ev.get("competitions") or [{}])[0]
-                    _team_by_ha = {}
-                    for _tc in (_comp.get("competitors") or []):
-                        _ha_ = _tc.get("homeAway","")
-                        _nt_ = _norm_team(_tc.get("team",{}).get("displayName",""))
-                        _team_by_ha[_ha_] = _nt_
-                    for _det in (_comp.get("details") or []):
-                        _txt_ = str(_det.get("type",{}).get("text","")).lower()
-                        _inv_ = _det.get("athletesInvolved") or []
-                        _ha_  = _det.get("homeAway","")
-                        _nt_  = _team_by_ha.get(_ha_,"")
-                        _fc_  = TEAM_FLAG_MAP.get(_nt_,"")
-                        def _ph_(a):
-                            if not a: return ""
-                            _hs_ = a.get("headshot")
-                            if isinstance(_hs_, dict): return _hs_.get("href","")
-                            _id_ = a.get("id","")
-                            return f"https://a.espncdn.com/combiner/i?img=/i/headshots/soccer/players/full/{_id_}.png&w=96&h=70" if _id_ else ""
-                        if "goal" in _txt_ or "penalty" in _txt_:
-                            if _inv_:
-                                _pn_ = _inv_[0].get("displayName","")
-                                if _pn_: results.append(("goal", _pn_, _nt_, _fc_, _ph_(_inv_[0])))
-                                if len(_inv_) > 1 and "own" not in _txt_:
-                                    _an_ = _inv_[1].get("displayName","")
-                                    if _an_: results.append(("assist", _an_, _nt_, _fc_, _ph_(_inv_[1])))
-                        if "yellow card" in _txt_ and _inv_:
-                            _pn_ = _inv_[0].get("displayName","")
-                            if _pn_: results.append(("yellow", _pn_, _nt_, _fc_, _ph_(_inv_[0])))
-                        if "red card" in _txt_ and _inv_:
-                            _pn_ = _inv_[0].get("displayName","")
-                            if _pn_: results.append(("red", _pn_, _nt_, _fc_, _ph_(_inv_[0])))
-                return results
-            except Exception:
-                return []
-
-        with ThreadPoolExecutor(max_workers=6) as _pool:
-            _futures = {_pool.submit(_fetch_day_stats, d): d for d in _all_days}
-            for _fut in as_completed(_futures):
-                for _evt_type, _pname_, _nt_, _fc_, _photo_ in (_fut.result() or []):
-                    if _evt_type == "goal":
-                        if _pname_ not in _espn_scorers:
-                            _espn_scorers[_pname_] = {"team":_nt_,"count":0,"flag_code":_fc_,"photo":_photo_}
-                        _espn_scorers[_pname_]["count"] += 1
-                    elif _evt_type == "assist":
-                        if _pname_ not in _espn_assists:
-                            _espn_assists[_pname_] = {"team":_nt_,"count":0,"flag_code":_fc_,"photo":_photo_}
-                        _espn_assists[_pname_]["count"] += 1
-                    elif _evt_type == "yellow":
-                        if _pname_ not in _espn_yellows:
-                            _espn_yellows[_pname_] = {"team":_nt_,"count":0,"flag_code":_fc_,"photo":_photo_}
-                        _espn_yellows[_pname_]["count"] += 1
-                    elif _evt_type == "red":
-                        if _pname_ not in _espn_reds:
-                            _espn_reds[_pname_] = {"team":_nt_,"count":0,"flag_code":_fc_,"photo":_photo_}
-                        _espn_reds[_pname_]["count"] += 1
-
-        if _espn_scorers: _result["top_scorers"]  = _to_list(_espn_scorers)
-        if _espn_assists: _result["top_assists"]   = _to_list(_espn_assists)
-        if _espn_yellows: _result["yellow_cards"]  = _to_list(_espn_yellows)
-        if _espn_reds:    _result["red_cards"]     = _to_list(_espn_reds)
-
-    return _result
 
 
 @st.cache_data(ttl=15)
@@ -1719,11 +1304,13 @@ def fetch_live_scores():
     return _out
 
 
-def sync_results_to_excel(file_path, api_results, api_scores=None, live_scores=None, sheet_name="Sheet1"):
+def sync_results_to_excel(file_path, api_results, api_scores=None, live_scores=None, api_pens=None, sheet_name="Sheet1"):
     """
     Write API results (and scores) back into the Excel Result / Score columns.
     Only fills blank cells so manual values stay intact.
     Skips any match that is currently live or in the live window.
+    Also backfills a blank Pens column from auto-detected API penalty scores
+    (never overwrites a Pens value the user has already typed in manually).
     """
     wb = load_workbook(file_path)
     ws = wb[sheet_name]
@@ -1746,6 +1333,12 @@ def sync_results_to_excel(file_path, api_results, api_scores=None, live_scores=N
         c_score = ws.max_column + 1
         ws.cell(1, c_score).value = "Score"
 
+    # Create Pens column if it doesn't exist yet (manual override: "4-3")
+    c_pens = headers.get("Pens")
+    if not c_pens:
+        c_pens = ws.max_column + 1
+        ws.cell(1, c_pens).value = "Pens"
+
     if not c_team1 or not c_team2 or not c_result:
         raise ValueError("Missing required columns: Team 1, Team 2, Result")
 
@@ -1760,20 +1353,25 @@ def sync_results_to_excel(file_path, api_results, api_scores=None, live_scores=N
         if team1 is None or team2 is None:
             continue
 
+        k1 = _team_key(team1)
+        k2 = _team_key(team2)
+
         # Keep manual result if already present.
         if current_result is not None and str(current_result).strip() != "":
-            # But still try to backfill a missing score for already-finished matches
+            # But still try to backfill a missing score / pens for already-finished matches
             current_score = ws.cell(r, c_score).value
             if (current_score is None or str(current_score).strip() == "") and api_scores:
-                k1, k2 = _team_key(team1), _team_key(team2)
                 sc = api_scores.get((k1, k2)) or api_scores.get((k2, k1))
                 if sc:
                     ws.cell(r, c_score).value = f"{sc[0]}-{sc[1]}"
                     updated += 1
+            current_pens = ws.cell(r, c_pens).value
+            if (current_pens is None or str(current_pens).strip() == "") and api_pens:
+                pn = api_pens.get((k1, k2)) or api_pens.get((k2, k1))
+                if pn:
+                    ws.cell(r, c_pens).value = f"{pn[0]}-{pn[1]}"
+                    updated += 1
             continue
-
-        k1 = _team_key(team1)
-        k2 = _team_key(team2)
 
         # Skip matches that are currently live.
         if live_scores and (live_scores.get((k1, k2)) or live_scores.get((k2, k1))):
@@ -1806,6 +1404,11 @@ def sync_results_to_excel(file_path, api_results, api_scores=None, live_scores=N
                 sc = api_scores.get((k1, k2)) or api_scores.get((k2, k1))
                 if sc:
                     ws.cell(r, c_score).value = f"{sc[0]}-{sc[1]}"
+            # Persist auto-detected penalty score too, if any
+            if api_pens:
+                pn = api_pens.get((k1, k2)) or api_pens.get((k2, k1))
+                if pn:
+                    ws.cell(r, c_pens).value = f"{pn[0]}-{pn[1]}"
             updated += 1
 
     if updated:
@@ -1854,13 +1457,11 @@ try:
 except Exception:
     _mtime = 0
 
-_api_results, _api_scores, _api_datetimes = fetch_api_results()
-_live_scores    = fetch_live_scores()
-_api_schedule   = fetch_schedule()
-_goalscorers    = fetch_match_goalscorers()
-_tourney_stats  = fetch_player_stats()
+_api_results, _api_scores, _api_datetimes, _api_pens = fetch_api_results()
+_live_scores  = fetch_live_scores()
+_api_schedule = fetch_schedule()   # authoritative kick-off times for ALL matches
 try:
-    _ = sync_results_to_excel(FILE_PATH, _api_results, api_scores=_api_scores, live_scores=_live_scores)
+    _ = sync_results_to_excel(FILE_PATH, _api_results, api_scores=_api_scores, live_scores=_live_scores, api_pens=_api_pens)
 except Exception as e:
     st.warning(f"Could not sync API results back to Excel: {e}")
 
@@ -1870,6 +1471,22 @@ except Exception:
     _mtime = 0
 
 df = load_data(_mtime, _path=FILE_PATH)
+
+# ── Build the authoritative Pens map ────────────────────────────────────────
+# A manual value typed into the spreadsheet's "Pens" column (e.g. "4-3") always
+# wins over an auto-detected API value, since shootout fields aren't reliably
+# exposed by every provider.
+_pens_map = dict(_api_pens)  # start with best-effort auto-detected values
+if "Pens" in df.columns:
+    for _, _prow in df.iterrows():
+        _pt1, _pt2 = _prow.get("Team 1"), _prow.get("Team 2")
+        if pd.isna(_pt1) or pd.isna(_pt2):
+            continue
+        _pp = _parse_pens(_prow.get("Pens"))
+        if _pp:
+            _pk1, _pk2 = _team_key(_pt1), _team_key(_pt2)
+            _pens_map[(_pk1, _pk2)] = _pp
+            _pens_map[(_pk2, _pk1)] = (_pp[1], _pp[0])
 
 # Create an in-memory copy of the spreadsheet and fill missing Result/Score cells
 # from API results so the UI updates immediately without requiring Excel writes.
@@ -1898,16 +1515,36 @@ try:
             _df_copy.at[idx, "DateTime"]    = _sched_dt
             _df_copy.at[idx, "Date (NZDT)"] = pd.Timestamp(_sched_dt.date())
 
-        # ── Only patch result/score for blank rows that have already kicked off ──
+        # ── If a manual/auto Pens value exists for a drawn match, the pens
+        #    winner takes precedence over a "Draw" Result, in/out of Excel. ──
+        _pen_pair = _pens_map.get((k1, k2)) or _pens_map.get((k2, k1))
         cur = _row.get("Result")
+        cur_is_blank = pd.isna(cur) or str(cur).strip() == ""
+        cur_is_draw  = (not cur_is_blank) and _is_draw_result(cur)
+
+        if _pen_pair and (cur_is_blank or cur_is_draw):
+            p0, p1 = _pens_map.get((k1, k2), (None, None))
+            if p0 is None:
+                # only the reverse-keyed pair was found
+                p1, p0 = _pens_map.get((k2, k1))
+            if p0 is not None and p1 is not None:
+                _winner = t1 if p0 > p1 else t2 if p1 > p0 else None
+                if _winner:
+                    _df_copy.at[idx, "Result"] = _winner
+                    cur_is_blank = False  # treat as resolved below
+
+        # ── Only patch result/score for blank rows that have already kicked off ──
+        cur = _df_copy.at[idx, "Result"]
         if pd.notna(cur) and str(cur).strip() != "":
-            continue
-        _match_dt = _df_copy.at[idx, "DateTime"]   # use the potentially-updated value
-        if _match_dt is not None and pd.notna(_match_dt) and _match_dt > _now_patch:
-            continue
-        winner = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
-        if winner:
-            _df_copy.at[idx, "Result"] = winner
+            pass
+        else:
+            _match_dt = _df_copy.at[idx, "DateTime"]   # use the potentially-updated value
+            if _match_dt is not None and pd.notna(_match_dt) and _match_dt > _now_patch:
+                pass
+            else:
+                winner = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
+                if winner:
+                    _df_copy.at[idx, "Result"] = winner
         cur_score = _row.get("Score")
         if (pd.isna(cur_score) if isinstance(cur_score, float) else not cur_score):
             sc = _api_scores.get((k1, k2)) if '_api_scores' in globals() else None
@@ -2064,82 +1701,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# ── Tournament Stats panel — right here, most visible spot ──────────────────
-if _tourney_stats:
-    _has_any = any(_tourney_stats.get(k) for k in ("top_scorers","top_assists","yellow_cards","red_cards"))
-    if not _has_any:
-        with st.expander("🔍 Stats Debug", expanded=True):
-            import requests as _req_dbg
-            st.write("**Testing ESPN slugs:**")
-            for _ds in ["fifa.worldcup","fifa.world","global.2026-fifa-world-cup","fifa.worldcup.2026"]:
-                for _dd in ["20260630","20260628","20260625"]:
-                    try:
-                        _dr = _req_dbg.get(f"https://site.api.espn.com/apis/site/v2/sports/soccer/{_ds}/scoreboard?dates={_dd}",
-                                           timeout=6, headers={"User-Agent":"Mozilla/5.0"})
-                        _devs = _dr.json().get("events",[]) if _dr.status_code==200 else []
-                        st.write(f"  {_ds} / {_dd}: status={_dr.status_code} events={len(_devs)}")
-                        if _devs:
-                            _dc = (_devs[0].get("competitions") or [{}])[0]
-                            _dteams = _dc.get("competitors",[])
-                            _dnames = [(t.get("homeAway",""),t.get("team",{}).get("displayName",""),t.get("score","")) for t in _dteams]
-                            _ddetails = _dc.get("details",[])
-                            st.write(f"    teams={_dnames}")
-                            st.write(f"    details count={len(_ddetails)}")
-                            if _ddetails:
-                                for _dd2 in _ddetails[:3]:
-                                    st.write(f"    detail: type={_dd2.get('type',{}).get('text','')!r} homeAway={_dd2.get('homeAway','')!r} scorer={(_dd2.get('athletesInvolved') or [{}])[0].get('displayName','?')!r}")
-                        break
-                    except Exception as _de:
-                        st.write(f"  {_ds} / {_dd}: ERROR {_de}")
-            st.write("**Goalscorers cache sample:**")
-            _gs_sample = list(_goalscorers.items())[:3] if _goalscorers else []
-            if _gs_sample:
-                for _gk, _gv in _gs_sample:
-                    st.write(f"  {_gk}: keys={list(_gv.keys())[:5]}")
-            else:
-                st.write("  _goalscorers is EMPTY")
-    def _ts_rows(items, val_cls="goals"):
-        medals  = {1:"🥇", 2:"🥈", 3:"🥉"}
-        p_cls   = {1:"gold", 2:"silver", 3:"bronze"}
-        rows, prev, rank = "", None, 0
-        for i, p in enumerate(items[:5], 1):
-            if p.get("count") != prev: rank = i
-            prev = p.get("count")
-            _fc     = p.get("flag_code","")
-            _flag   = f'<img src="https://flagcdn.com/w40/{_fc}.png" style="width:22px;height:15px;object-fit:cover;border-radius:2px;" onerror="this.style.display=\'none\'">' if _fc else ""
-            _photo  = p.get("photo","")
-            _medal  = medals.get(rank, f'<span style="color:#4dabf7;font-family:Bebas Neue,Impact,sans-serif;font-size:15px">{rank}</span>')
-            _pcls   = p_cls.get(rank,"")
-            rows += f"""
-            <div class="ts-row">
-                <div class="ts-pos {_pcls}">{_medal}</div>
-                <div class="ts-player-wrap">
-                    <div class="ts-photo-hover">
-                        {"<img src='" + _photo + "' class='ts-photo-img' onerror=\"this.style.display='none'\">" if _photo else ""}
-                    </div>
-                    <div class="ts-flag-sm">{_flag}</div>
-                    <div class="ts-info">
-                        <div class="ts-name-sm">{p.get("name","")}</div>
-                        <div class="ts-team-sm">{p.get("team","")}</div>
-                    </div>
-                </div>
-                <div class="ts-val {val_cls}">{p.get("count",0)}</div>
-            </div>"""
-        return rows or '<div style="color:#506080;font-size:12px;padding:10px 4px">No data yet</div>'
-
-    _s_html = _ts_rows(_tourney_stats.get("top_scorers",[]),  "goals")
-    _a_html = _ts_rows(_tourney_stats.get("top_assists",[]),  "assists")
-    _y_html = _ts_rows(_tourney_stats.get("yellow_cards",[]), "yellow")
-    _r_html = _ts_rows(_tourney_stats.get("red_cards",[]),    "red")
-    st.markdown(f"""
-    <div class="ts-panel">
-        <div class="ts-card"><div class="ts-card-title">⚽ TOP SCORERS</div>{_s_html}</div>
-        <div class="ts-card"><div class="ts-card-title">🎯 TOP ASSISTS</div>{_a_html}</div>
-        <div class="ts-card"><div class="ts-card-title">🟨 YELLOW CARDS</div>{_y_html}</div>
-        <div class="ts-card"><div class="ts-card-title">🟥 RED CARDS</div>{_r_html}</div>
-    </div>
-    """, unsafe_allow_html=True)
-
 pick_cols = [col for col in df.columns if "Pick" in col]
 
 records = []
@@ -2188,7 +1749,6 @@ leaderboard.insert(0, "Rank", compute_ranks(leaderboard["Points"].tolist()))
 leaderboard["Accuracy"] = (leaderboard["Points"] / leaderboard["Matches"] * 100).round(1).astype(str) + "%"
 
 st.markdown('<div class="section-title">🏆 Leaderboard</div>', unsafe_allow_html=True)
-
 
 _PALETTE = [
     "#ff6b6b","#ffd43b","#69db7c","#4dabf7","#ff922b",
@@ -2248,39 +1808,17 @@ st.markdown(
 # =========================
 st.markdown("""
 <div class="pitch-divider">
- </div>
+    <span class="pitch-ball">⚽</span>
+    <span class="pitch-label">MATCH SCHEDULE</span>
+    <span class="pitch-ball">⚽</span>
+</div>
 """, unsafe_allow_html=True)
-
-
-
 
 now = datetime.now(NZ_TZ)
 today = now.date()
 selected_date = st.date_input("Select Date", value=today)
 
 matches = df[df["Date (NZDT)"].dt.date == selected_date]
-
-# ── Goalscorer debug ─────────────────────────────────────────────────────────
-with st.expander("🔍 Goalscorer Debug", expanded=False):
-    st.write(f"Total entries in _goalscorers: {len(_goalscorers)}")
-    for _gk, _gv in list(_goalscorers.items())[:6]:
-        st.write(f"  key={_gk} → stored_keys={list(_gv.keys())}")
-        for _tk, _goals in _gv.items():
-            if _goals:
-                st.write(f"    {_tk}: {[g['name'] for g in _goals[:3]]}")
-
-# ── Filter out non-WC rows (e.g. domestic league games from API) ─────────────
-_wc_teams = set(t.casefold() for t in TEAM_FLAG_MAP.keys())
-
-def _is_wc_team(name):
-    """True if team name is a known WC2026 nation."""
-    if not name or str(name).strip().casefold() in ("tbd","tba","nan",""):
-        return True   # TBD slots are valid — keep them
-    return str(name).strip().casefold() in _wc_teams or get_flag_url(str(name).strip()) is not None
-
-matches = matches[matches.apply(
-    lambda r: _is_wc_team(str(r["Team 1"])) and _is_wc_team(str(r["Team 2"])), axis=1
-)]
 
 if matches.empty:
     st.info("⚽ No matches scheduled for this date.")
@@ -2296,6 +1834,11 @@ else:
         live = (_live_scores.get((k1, k2)) or _live_scores.get((k2, k1))) if '_live_scores' in globals() else None
         api_result = _api_results.get((k1, k2)) or _api_results.get((k2, k1))
         api_score  = (_api_scores.get((k1, k2)) or _api_scores.get((k2, k1))) if '_api_scores' in globals() else None
+        pen_pair   = (_pens_map.get((k1, k2)) if '_pens_map' in globals() else None)
+        if pen_pair is None and '_pens_map' in globals():
+            _rev = _pens_map.get((k2, k1))
+            if _rev:
+                pen_pair = (_rev[1], _rev[0])
 
         # Override dt from API schedule (covers upcoming + finished) — Excel dates never used
         _sched_dt = (
@@ -2351,10 +1894,12 @@ else:
             # Live data is available – clear any stale Excel / API result.
             has_result = False
             result = None
-        elif _in_live_window and has_result and _is_draw_result(result):
+        elif _in_live_window and has_result and _is_draw_result(result) and not pen_pair:
             # A "Draw" within the live window is likely a pre-match / in-progress
             # 0-0 placeholder written to Excel by a previous run.  Treat as pending.
             # BUT if the API explicitly confirms it as finished, trust the API.
+            # (If a penalty shootout result/score is already known, skip this —
+            # the match is genuinely over.)
             api_confirmed = bool(api_result)
             if not api_confirmed:
                 has_result = False
@@ -2364,7 +1909,8 @@ else:
             result = str(api_result).strip()
             has_result = True
 
-        # If a live feed has clearly finished and it's a draw, show Draw.
+        # If a live feed has clearly finished and it's a draw, show Draw
+        # (unless a penalty shootout score resolves it — handled below).
         finalized_live_draw = bool(
             is_finished_feed
             and live
@@ -2375,6 +1921,25 @@ else:
         if finalized_live_draw and not has_result:
             result = "Draw"
             has_result = True
+
+        # ── Penalty shootout resolves a level scoreline ─────────────────────
+        # If the match is finished, the scoreline is level, and we have a
+        # penalty-shootout score (manual "Pens" column or auto-detected),
+        # the shootout winner overrides a "Draw" result.
+        pens_decided = False
+        if (has_result or finalized_live_draw) and pen_pair:
+            _score_for_pens = api_score or (
+                (live.get("home"), live.get("away")) if (live and live.get("home") is not None) else None
+            )
+            _level = (result and _is_draw_result(result)) or (
+                _score_for_pens is not None and _score_for_pens[0] == _score_for_pens[1]
+            )
+            if _level:
+                p0, p1 = pen_pair
+                if p0 != p1:
+                    result = team1 if p0 > p1 else team2
+                    has_result = True
+                    pens_decided = True
 
         f1 = flag_html(get_flag_url(team1))
         f2 = flag_html(get_flag_url(team2))
@@ -2400,7 +1965,25 @@ else:
             _fin_score = api_score or (
                 (live.get("home"), live.get("away")) if live else None
             )
-            if result and _is_draw_result(result):
+            if pens_decided:
+                p0, p1 = pen_pair
+                _winner_name = team1 if p0 > p1 else team2
+                _wp, _lp = (p0, p1) if p0 > p1 else (p1, p0)
+                if _fin_score and _fin_score[0] is not None:
+                    if _team_key(_winner_name) == _team_key(team1):
+                        t1_cls, t2_cls = "winner", "loser"
+                    else:
+                        t1_cls, t2_cls = "loser", "winner"
+                    score_html = (
+                        f'<span class="result-win score-line">'
+                        f'{_fin_score[0]} — {_fin_score[1]}'
+                        f'<br><span style="font-size:12px;letter-spacing:1px;color:#ffd700;font-family:\'Bebas Neue\',Impact,sans-serif;">'
+                        f'{_winner_name} WON {_wp}-{_lp} ON PENS</span>'
+                        f'</span>'
+                    )
+                else:
+                    score_html = f'<span class="result-win">{_winner_name}<br>WON {_wp}-{_lp} ON PENS</span>'
+            elif result and _is_draw_result(result):
                 if _fin_score and _fin_score[0] is not None:
                     score_html = (
                         f'<span class="result-draw">'
@@ -2457,39 +2040,6 @@ else:
         elif status in ("Finished", "Result Pending"): card_cls = "match-card finished"
         else: card_cls = "match-card"
 
-        # ── Goalscorers — keyed by team_key, not home/away ──────────────────
-        _gs_data = None
-        if '_goalscorers' in globals():
-            _gs_data = _goalscorers.get((k1, k2)) or _goalscorers.get((k2, k1))
-
-        def _gs_col(goals, side="left"):
-            cls = "gs-col" if side == "left" else "gs-col right"
-            if not goals:
-                return f'<div class="{cls}"></div>'
-            items = ""
-            for g in goals:
-                if not g.get("name"): continue
-                og = ' <span style="color:#ff7070;font-size:9px">(OG)</span>' if g.get("og") else ""
-                items += (
-                    f'<div class="gs-entry">'
-                    f'<span class="gs-ball">⚽</span>'
-                    f'<span class="gs-name">{g["name"]}{og}</span>'
-                    f'<span class="gs-min">{g["minute"]}\'</span>'
-                    f'</div>'
-                )
-            return f'<div class="{cls}">{items}</div>'
-
-        _show_gs = bool(_gs_data and status in ("Finished", "LIVE"))
-        if _show_gs and _gs_data:
-            # _gs_data is {team_key: [goals]} — look up by each team's key directly
-            _hg = _gs_data.get(k1, [])
-            _ag = _gs_data.get(k2, [])
-        else:
-            _hg, _ag = [], []
-
-        _gs_left  = _gs_col(_hg, "left")  if _show_gs else '<div class="gs-col"></div>'
-        _gs_right = _gs_col(_ag, "right") if _show_gs else '<div class="gs-col right"></div>'
-
         st.markdown(f"""
         <div class="{card_cls}">
             <div class="match-inner">
@@ -2497,11 +2047,9 @@ else:
                     {f1}
                     <span class="team-name {t1_cls}">{team1}</span>
                 </div>
-                {_gs_left}
                 <div class="vs-center">
                     {score_html}
                 </div>
-                {_gs_right}
                 <div class="team-right">
                     <span class="team-name {t2_cls}">{team2}</span>
                     {f2}
@@ -2576,38 +2124,17 @@ st.dataframe(
 # =========================
 st.markdown('<div class="section-title">⚠️ Missing Picks</div>', unsafe_allow_html=True)
 
-_vm          = df[df["Team 1"].notna() & df["Team 2"].notna()].reset_index(drop=True)
-_gs_matches  = _vm.iloc[:72]
-_ko_matches  = _vm.iloc[72:]
-_ko_total    = len(_ko_matches)
+stage1  = df.head(72)
+missing = []
 
-# ── Round 1 ──
-st.markdown("**Round 1 — Group Stage (72 matches)**")
-_r1_missing = []
 for col in pick_cols:
     p_name = col.replace(" Pick", "")
-    filled = int(_gs_matches[col].notna().sum())
+    filled = stage1[col].notna().sum()
     miss   = 72 - filled
     if miss > 0:
-        _r1_missing.append({"Player": p_name, "Filled": filled, "Missing": miss})
-if _r1_missing:
-    st.dataframe(pd.DataFrame(_r1_missing), use_container_width=True, hide_index=True)
-else:
-    st.success("✅ All players have completed their Round 1 picks!")
+        missing.append({"Player": p_name, "Filled": filled, "Missing": miss})
 
-# ── Round of 32 ──
-if _ko_total > 0:
-    st.markdown(f"**Round of 32 — Knockout ({_ko_total} matches)**")
-    _r2_missing = []
-    for col in pick_cols:
-        p_name = col.replace(" Pick", "")
-        filled = int(_ko_matches[col].notna().sum())
-        miss   = _ko_total - filled
-        if miss > 0:
-            _r2_missing.append({"Player": p_name, "Filled": filled, "Missing": miss})
-    if _r2_missing:
-        st.dataframe(pd.DataFrame(_r2_missing), use_container_width=True, hide_index=True)
-    else:
-        st.success("✅ All players have completed their Round of 32 picks!")
+if missing:
+    st.dataframe(pd.DataFrame(missing), use_container_width=True, hide_index=True)
 else:
-    st.info("ℹ️ Round of 32 fixtures not yet available in the spreadsheet.")
+    st.success("✅ All players have completed their picks!")
