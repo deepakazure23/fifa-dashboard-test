@@ -1670,10 +1670,8 @@ def flag_html(url):
 # ✅ LEADERBOARD
 # =========================
 
-# Count every scheduled fixture (all 104 matches are dated in advance, even
-# knockout-round rows whose Team 1 / Team 2 are still "TBD" pending earlier
-# results) — not just rows where both teams are already confirmed.
-valid_matches = df[df["Date (NZDT)"].notna()]
+completed_matches = int(df["Result"].notna().sum())
+valid_matches = df[df["Team 1"].notna() & df["Team 2"].notna()]
 total_matches = len(valid_matches)
 completed_matches = valid_matches["Result"].notna().sum()
 remaining_matches = total_matches - completed_matches
